@@ -23,6 +23,25 @@ namespace OffAngle.Weapons
         [Tooltip("Shots per second.")]
         [Min(0.01f)] public float FireRate = 5f;
 
+        [Tooltip("How the trigger behaves: one shot per press, continuous while held, or a fixed multi-shot burst per press.")]
+        public FireMode FireMode = FireMode.SemiAuto;
+
+        [Tooltip("Number of shots fired per trigger press. Only used when FireMode is Burst.")]
+        [Min(1)] public int BurstCount = 3;
+
+        [Header("Ammo")]
+        [Tooltip("Rounds held in the magazine before a reload is required.")]
+        [Min(1)] public int MagazineSize = 30;
+
+        [Tooltip("Rounds available in reserve when the player spawns with this weapon.")]
+        [Min(0)] public int StartingReserveAmmo = 90;
+
+        [Tooltip("Seconds a reload takes to complete.")]
+        [Min(0.01f)] public float ReloadTime = 2f;
+        
+        [Tooltip("If true, a reload starts automatically when the magazine hits zero and reserve ammo remains.")]
+        public bool AutoReloadOnEmpty = true;
+
         [Tooltip("Hitscan is currently the only implemented shot type. Projectile is reserved for future expansion.")]
         public ShotType ShotType = ShotType.Hitscan;
 

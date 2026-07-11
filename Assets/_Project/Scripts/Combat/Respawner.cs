@@ -32,6 +32,10 @@ namespace OffAngle.Combat
 
         [SerializeField] private bool _restoreFullHealth = true;
 
+        [Tooltip("Optional - leave empty for entities with no weapon (e.g. dummies). Resets ammo on respawn.")]
+        [SerializeField] private PlayerWeaponController _weaponController;
+        [SerializeField] private bool _restoreFullAmmo = true;
+
         private Health _health;
         private Coroutine _respawnRoutine;
 
@@ -90,6 +94,9 @@ namespace OffAngle.Combat
 
             if (_restoreFullHealth)
                 _health.ResetHealth();
+
+            if (_restoreFullAmmo && _weaponController != null)
+                _weaponController.ServerResetAmmo();
 
             _respawnRoutine = null;
         }

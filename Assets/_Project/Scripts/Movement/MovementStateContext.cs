@@ -79,17 +79,22 @@ namespace OffAngle.Movement
         public int RemainingJumps;
     }
 
+    // World scale reference: 1 Unity unit = 1 meter. Defaults below match the
+    // project baseline in Assets/_Project/Docs/PlayerScaleReference.md — treat
+    // that doc as the source of truth if these ever drift apart.
     [System.Serializable]
     public class MovementSettings
     {
         [Header("Ground Movement")]
-        public float WalkSpeed   = 5f;
-        public float SprintSpeed = 9f;
+        [Tooltip("Walk speed in meters/second.")]
+        public float WalkSpeed   = 4.5f;
+        [Tooltip("Sprint speed in meters/second.")]
+        public float SprintSpeed = 7f;
         public float CrouchSpeed = 2.5f;   // PHASE 2: used by CrouchingState
 
         [Header("Jumping")]
         [Tooltip("Apex height in meters. Drives jump velocity via v = sqrt(2 * h * g).")]
-        public float JumpHeight  = 1.5f;
+        public float JumpHeight  = 0.9f;
         [Tooltip("Downward acceleration in m/s². Increase for snappier feel.")]
         public float Gravity     = 20f;
         [Tooltip("1 = single jump. Set to 2 to enable double jump (Phase 2).")]

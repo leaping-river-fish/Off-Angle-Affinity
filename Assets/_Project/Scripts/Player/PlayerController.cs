@@ -20,13 +20,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // CHARACTERCONTROLLER RECOMMENDED SETTINGS
 // ─────────────────────────────────────────────────────────────────────────────
+//   World scale: 1 Unity unit = 1 meter. See Assets/_Project/Docs/PlayerScaleReference.md
+//   for the full set of baseline player metrics.
+//
 //   Slope Limit      45
 //   Step Offset       0.3
 //   Skin Width        0.08
 //   Min Move Distance 0       ← prevents micro-stutter at low speeds
-//   Center           (0, 1, 0) for a 2 m capsule standing on origin
+//   Center           (0, 0.9, 0) for a 1.8 m capsule with the root at the feet
 //   Radius            0.5
-//   Height            2.0
+//   Height            1.8
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // MULTIPLAYER INTEGRATION HOOK

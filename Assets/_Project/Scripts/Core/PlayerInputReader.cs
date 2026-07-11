@@ -48,6 +48,7 @@ namespace OffAngle.Core
         public event Action<bool>    SprintChanged;
 
         public event Action FireStarted;
+        public event Action FireCanceled;
         public event Action ReloadStarted;
 
         // Grapple is hold-to-use: GrappleStarted fires on press,
@@ -121,6 +122,7 @@ namespace OffAngle.Core
             _sprint.performed       += OnSprintPerformed;
             _sprint.canceled        += OnSprintCanceled;
             _fire.performed         += OnFire;
+            _fire.canceled          += OnFireCanceled;
             _reload.performed       += OnReload;
             _grapple.performed      += OnGrapplePerformed;
             _grapple.canceled       += OnGrappleCanceled;
@@ -143,6 +145,7 @@ namespace OffAngle.Core
             _sprint.performed       -= OnSprintPerformed;
             _sprint.canceled        -= OnSprintCanceled;
             _fire.performed         -= OnFire;
+            _fire.canceled          -= OnFireCanceled;
             _reload.performed       -= OnReload;
             _grapple.performed      -= OnGrapplePerformed;
             _grapple.canceled       -= OnGrappleCanceled;
@@ -184,6 +187,9 @@ namespace OffAngle.Core
 
         private void OnFire(InputAction.CallbackContext ctx)
             => FireStarted?.Invoke();
+
+        private void OnFireCanceled(InputAction.CallbackContext ctx)
+            => FireCanceled?.Invoke();
 
         private void OnReload(InputAction.CallbackContext ctx)
             => ReloadStarted?.Invoke();

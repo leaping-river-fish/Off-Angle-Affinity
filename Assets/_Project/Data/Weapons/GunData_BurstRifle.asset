@@ -10,10 +10,16 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9b22cc450a00b8a49a79d36a7de02483, type: 3}
-  m_Name: GunData_New
+  m_Name: GunData_BurstRifle
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.GunData
   Damage: 25
-  FireRate: 5
+  FireRate: 12
+  FireMode: 2
+  BurstCount: 3
+  MagazineSize: 24
+  StartingReserveAmmo: 72
+  ReloadTime: 2
+  AutoReloadOnEmpty: 1
   ShotType: 0
   Range: 100
   HitMask:

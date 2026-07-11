@@ -132,7 +132,7 @@ GameObject:
   - component: {fileID: 4373811684987881911}
   - component: {fileID: 3639820871987987675}
   m_Layer: 0
-  m_Name: Default Gun
+  m_Name: Burst Rifle
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -167,5 +167,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 34a44b22982e5644d9c4bd18418aa850, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.Gun
-  _data: {fileID: 11400000, guid: ab7d1a41de2ba4b4b8566d190e1108f8, type: 2}
+  _data: {fileID: 11400000, guid: 146be9a9c854f2b42b27594f85265365, type: 2}
   _firePoint: {fileID: 1789808541031249046}
