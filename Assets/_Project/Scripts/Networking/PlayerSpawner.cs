@@ -50,6 +50,27 @@ namespace OffAngle.Networking
         private int _spawnIndex;
 
         // ------------------------------------------------------------------
+        // Scene singleton — Respawner queries GetSpawnPoint() here.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Scene singleton reference. Set in Awake on every peer (scene object),
+        /// cleared in OnDestroy. Consumers should null-check because the spawner
+        /// only exists once the gameplay scene is loaded.
+        /// </summary>
+        public static PlayerSpawner Instance { get; private set; }
+
+        private void Awake()
+        {
+            if (Instance != null && Instance != this)
+            {
+                Debug.LogWarning($"[{nameof(PlayerSpawner)}] Multiple instances found. Keeping the first on '{Instance.name}'.", this);
+                return;
+            }
+            Instance = this;
+        }
+
+        // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------
 
@@ -82,6 +103,26 @@ namespace OffAngle.Networking
         {
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
+
+            if (Instance == this)
+                Instance = null;
+        }
+
+        // ------------------------------------------------------------------
+        // Public spawn point query (used by Respawner)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Returns a random configured spawn point, or null if none are set.
+        /// Safe to call on any peer.
+        /// </summary>
+        public Transform GetSpawnPoint()
+        {
+            if (_spawnPoints == null || _spawnPoints.Length == 0)
+                return null;
+
+            int idx = Random.Range(0, _spawnPoints.Length);
+            return _spawnPoints[idx];
         }
 
         // ------------------------------------------------------------------
