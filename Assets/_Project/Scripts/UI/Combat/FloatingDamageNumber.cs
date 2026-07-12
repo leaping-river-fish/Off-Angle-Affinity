@@ -27,12 +27,12 @@ namespace OffAngle.UI.Combat
         // Public — called immediately after Instantiate
         // ------------------------------------------------------------------
 
-        public void Initialize(float amount, AffinityType affinity)
+        public void Initialize(float amount, AffinityType affinity, DamageCategory category)
         {
             if (_text != null)
             {
                 _text.text = Mathf.CeilToInt(amount).ToString();
-                _baseColor = ColorForAffinity(affinity);
+                _baseColor = ColorForCategory(category, affinity);
                 _text.color = _baseColor;
             }
             _spawnTime = Time.time;
@@ -71,6 +71,21 @@ namespace OffAngle.UI.Combat
             if (toCam.sqrMagnitude < 0.0001f) return;
 
             transform.rotation = Quaternion.LookRotation(toCam.normalized, Vector3.up);
+        }
+
+        // ------------------------------------------------------------------
+        // Category color mapping — category wins over affinity; Normal falls
+        // back to the existing elemental tint so affinity flavor still shows.
+        // ------------------------------------------------------------------
+        private static Color ColorForCategory(DamageCategory category, AffinityType affinity)
+        {
+            switch (category)
+            {
+                case DamageCategory.Critical: return new Color(1.00f, 0.85f, 0.10f); // gold
+                case DamageCategory.Shield:   return new Color(0.40f, 0.80f, 1.00f); // cyan
+                case DamageCategory.Heal:     return new Color(0.40f, 1.00f, 0.40f); // green
+                default:                      return ColorForAffinity(affinity);
+            }
         }
 
         // ------------------------------------------------------------------

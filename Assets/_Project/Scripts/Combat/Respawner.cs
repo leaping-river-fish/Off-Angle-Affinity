@@ -36,6 +36,9 @@ namespace OffAngle.Combat
         [SerializeField] private PlayerWeaponController _weaponController;
         [SerializeField] private bool _restoreFullAmmo = true;
 
+        [Tooltip("Optional - leave empty for entities with no shield (e.g. dummies). Restores shield to full on respawn.")]
+        [SerializeField] private Shield _shield;
+
         private Health _health;
         private Coroutine _respawnRoutine;
 
@@ -94,6 +97,9 @@ namespace OffAngle.Combat
 
             if (_restoreFullHealth)
                 _health.ResetHealth();
+
+            if (_shield != null)
+                _shield.ResetShield();
 
             if (_restoreFullAmmo && _weaponController != null)
                 _weaponController.ServerResetAmmo();

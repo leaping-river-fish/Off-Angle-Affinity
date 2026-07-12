@@ -33,6 +33,10 @@ namespace OffAngle.Combat
         [Tooltip("If true, the server initializes CurrentHealth to MaxHealth when this object spawns.")]
         [SerializeField] private bool _initializeToMaxOnStart = true;
 
+        [Header("Shield (optional)")]
+        [Tooltip("If assigned, incoming damage is absorbed by the shield first; only the leftover reaches health.")]
+        [SerializeField] private Shield _shield;
+
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<float> _current = new SyncVar<float>();
 
@@ -59,7 +63,7 @@ namespace OffAngle.Combat
         /// Global damage-feedback broadcast (all Health instances funnel through here).
         /// Args: (worldHitPoint, amount, affinity). UI subscribes; gameplay does not.
         /// </summary>
-        public static event Action<Vector3, float, AffinityType> DamageFeedback;
+        public static event Action<Vector3, float, AffinityType, DamageCategory> DamageFeedback;
 
         // ------------------------------------------------------------------
         // Lifecycle
@@ -99,10 +103,20 @@ namespace OffAngle.Combat
             if (IsDead) return;
             if (info.Amount <= 0f) return;
 
-            float next = Mathf.Max(0f, _current.Value - info.Amount);
+            float remaining = _shield != null ? _shield.AbsorbDamage(info.Amount) : info.Amount;
+            
+            if (remaining <= 0f)
+            {
+                // Fully absorbed by the shield — health untouched, but still give the
+                // client a damage-number popup so the hit feels acknowledged.
+                RpcOnDamaged(info.HitPoint, info.Amount, info.Affinity, DamageCategory.Shield);
+                return;
+            }
+
+            float next = Mathf.Max(0f, _current.Value - remaining);
             _current.Value = next;
 
-            RpcOnDamaged(info.HitPoint, info.Amount, info.Affinity);
+            RpcOnDamaged(info.HitPoint, remaining, info.Affinity, info.Category);
 
             if (next <= 0f)
                 OnServerDied?.Invoke(info);
@@ -143,9 +157,9 @@ namespace OffAngle.Combat
         // ------------------------------------------------------------------
 
         [ObserversRpc]
-        private void RpcOnDamaged(Vector3 hitPoint, float amount, AffinityType affinity)
+        private void RpcOnDamaged(Vector3 hitPoint, float amount, AffinityType affinity, DamageCategory category)
         {
-            DamageFeedback?.Invoke(hitPoint, amount, affinity);
+            DamageFeedback?.Invoke(hitPoint, amount, affinity, category);
         }
 
         // ------------------------------------------------------------------

@@ -224,7 +224,8 @@ namespace OffAngle.Networking
                 weapon:   data,
                 affinity: data.Affinity,
                 hitPoint: hit.point,
-                hitNormal: hit.normal);
+                hitNormal: hit.normal,
+                category: DamageCategory.Normal);
 
             damageable.ApplyDamage(info);
         }

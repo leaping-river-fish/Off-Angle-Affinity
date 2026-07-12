@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 1128995274134979179}
   - component: {fileID: 456234691227885247}
   - component: {fileID: 635685549306009992}
+  - component: {fileID: 735558586019847789}
   - component: {fileID: 4303182265510470743}
   m_Layer: 0
   m_Name: Dummy
@@ -190,7 +191,25 @@ MonoBehaviour:
   _componentIndexCache: 255
   _addedNetworkObject: {fileID: 456234691227885247}
   _networkObjectCache: {fileID: 0}
-  _maxHealth: 150
+  _maxHealth: 100
+  _initializeToMaxOnStart: 1
+  _shield: {fileID: 735558586019847789}
+--- !u!114 &735558586019847789
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1320360808391995612}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f87cdd1ab1b04b347a81067ac71a2a81, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Combat.Shield
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 456234691227885247}
+  _networkObjectCache: {fileID: 0}
+  _maxShield: 100
   _initializeToMaxOnStart: 1
 --- !u!114 &4303182265510470743
 MonoBehaviour:
@@ -210,6 +229,9 @@ MonoBehaviour:
   _respawnDelay: 3
   _teleportOnRespawn: 0
   _restoreFullHealth: 1
+  _weaponController: {fileID: 0}
+  _restoreFullAmmo: 1
+  _shield: {fileID: 735558586019847789}
 --- !u!1001 &2842795520356353903
 PrefabInstance:
   m_ObjectHideFlags: 0

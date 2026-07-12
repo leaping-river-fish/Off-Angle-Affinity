@@ -147,7 +147,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 03fca012e2e6de5419c1ee1948f595a7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.UI.Combat.FloatingDamageNumber
-  _text: {fileID: 0}
+  _text: {fileID: 380442456819934467}
   _lifetime: 1
   _riseSpeed: 1.5
 --- !u!1 &6523249744250521281

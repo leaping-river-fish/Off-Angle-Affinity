@@ -23,6 +23,7 @@ namespace OffAngle.Combat
         public readonly AffinityType Affinity;
         public readonly Vector3 HitPoint;
         public readonly Vector3 HitNormal;
+        public readonly DamageCategory Category;
 
         public DamageInfo(
             float amount,
@@ -30,7 +31,8 @@ namespace OffAngle.Combat
             GunData weapon,
             AffinityType affinity,
             Vector3 hitPoint,
-            Vector3 hitNormal)
+            Vector3 hitNormal,
+            DamageCategory category = DamageCategory.Normal)
         {
             Amount = amount;
             Attacker = attacker;
@@ -38,6 +40,7 @@ namespace OffAngle.Combat
             Affinity = affinity;
             HitPoint = hitPoint;
             HitNormal = hitNormal;
+            Category = category;
         }
     }
 }
