@@ -110,6 +110,24 @@ namespace OffAngle.Movement
         /// <summary>The ID of the currently active movement state.</summary>
         public MovementStateId CurrentStateId => _current?.StateId ?? MovementStateId.Grounded;
 
+        /// <summary>
+        /// Clears input carried over while this component was disabled.
+        /// JumpPending/CrouchSlidePending are set by input event subscriptions
+        /// that run regardless of this component's enabled state (Unity's
+        /// enabled flag only pauses Update/FixedUpdate, not manual delegate
+        /// subscriptions) - a press during death would otherwise sit pending
+        /// and fire as a surprise action the instant movement resumes.
+        /// PlayerLifecycleController calls this on respawn, before re-enabling
+        /// this component.
+        /// </summary>
+        public void ResetTransientInput()
+        {
+            if (_ctx == null) return;
+            _ctx.JumpPending = false;
+            _ctx.CrouchSlidePending = false;
+            _ctx.Velocity = Vector3.zero;
+        }
+
         // ------------------------------------------------------------------
         // Private helpers
         // ------------------------------------------------------------------

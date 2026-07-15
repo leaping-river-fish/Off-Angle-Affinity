@@ -4,7 +4,7 @@
 // ARCHITECTURE:
 //   Subscribes to ServerManager.OnRemoteConnectionState. When any client
 //   (including the host's own loopback client) enters the Started state, the
-//   spawner picks the next round-robin spawn point and calls Spawn(obj, conn),
+//   spawner picks a random spawn point and calls Spawn(obj, conn),
 //   which atomically instantiates the prefab AND assigns the connecting peer
 //   as its owner. That ownership assignment is what later lets
 //   NetworkPlayerController distinguish IsOwner from a remote view.
@@ -43,11 +43,9 @@ namespace OffAngle.Networking
         [Tooltip("Root NetworkObject of the player prefab. Must be registered in DefaultPrefabObjects (FishNet auto-detects new prefabs containing a NetworkObject).")]
         [SerializeField] private NetworkObject _playerPrefab;
 
-        [Header("Spawn Points (round-robin)")]
+        [Header("Spawn Points")]
         [Tooltip("Empty Transforms placed in the scene. Leave empty to spawn everyone at world origin (useful for first smoke test).")]
         [SerializeField] private Transform[] _spawnPoints;
-
-        private int _spawnIndex;
 
         // ------------------------------------------------------------------
         // Scene singleton — Respawner queries GetSpawnPoint() here.
@@ -159,16 +157,10 @@ namespace OffAngle.Networking
 
         private (Vector3 position, Quaternion rotation) NextSpawnPoint()
         {
-            if (_spawnPoints == null || _spawnPoints.Length == 0)
+            Transform t = GetSpawnPoint();
+            if (t == null)
                 return (Vector3.zero, Quaternion.identity);
 
-            // Wrap around when more clients connect than spawn points exist.
-            // Overlap is intentional and visible; pick more spawn points if
-            // you want to avoid it. Anti-spawn-camping is a level-design pass.
-            int idx = _spawnIndex % _spawnPoints.Length;
-            _spawnIndex++;
-
-            Transform t = _spawnPoints[idx];
             return (t.position, t.rotation);
         }
     }

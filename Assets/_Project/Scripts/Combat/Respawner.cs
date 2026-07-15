@@ -39,6 +39,16 @@ namespace OffAngle.Combat
         [Tooltip("Optional - leave empty for entities with no shield (e.g. dummies). Restores shield to full on respawn.")]
         [SerializeField] private Shield _shield;
 
+        [Tooltip("Optional - leave empty for entities with no lifecycle controller (e.g. dummies). Flipped back to Alive as the last step of respawn, after all stats are restored.")]
+        [SerializeField] private PlayerLifecycleController _lifecycle;
+
+        /// <summary>
+        /// Single source of truth for the respawn delay. PlayerLifecycleController
+        /// reads this when broadcasting death (for the UI countdown) instead of
+        /// duplicating the value in its own inspector field.
+        /// </summary>
+        public float RespawnDelay => _respawnDelay;
+
         private Health _health;
         private Coroutine _respawnRoutine;
 
@@ -103,6 +113,11 @@ namespace OffAngle.Combat
 
             if (_restoreFullAmmo && _weaponController != null)
                 _weaponController.ServerResetAmmo();
+
+            // Last step, deliberately: nothing should observe the player as
+            // "alive" until health/shield/ammo are already restored.
+            if (_lifecycle != null)
+                _lifecycle.ServerSetAlive();
 
             _respawnRoutine = null;
         }

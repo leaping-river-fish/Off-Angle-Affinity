@@ -43,6 +43,11 @@ namespace OffAngle.Combat
 
         private float _lastDamageTime = float.NegativeInfinity;
 
+        // Set by PlayerLifecycleController.SetRegenLocked, driven by death/respawn
+        // (mirrors the seam Gun.SetLocked already exposes for weapons). Regen
+        // should not creep up while the player is dead and waiting to respawn.
+        private bool _regenLocked;
+
         public float MaxShield => _maxShield;
         public float CurrentShield => _current.Value;
         public float Normalized => _maxShield <= 0f ? 0f : Mathf.Clamp01(_current.Value / _maxShield);
@@ -105,9 +110,23 @@ namespace OffAngle.Combat
             _current.Value = _maxShield;
         }
 
+        /// <summary>
+        /// Server-only. Pauses/resumes passive regeneration wholesale. Called by
+        /// PlayerLifecycleController on death (locked) and respawn (unlocked) so
+        /// the shield does not creep up while the player is dead - it does not
+        /// affect AbsorbDamage, which is already unreachable once Health.IsDead
+        /// is true.
+        /// </summary>
+        public void SetRegenLocked(bool locked)
+        {
+            if (!IsServerInitialized) return;
+            _regenLocked = locked;
+        }
+
         private void Update()
         {
             if (!IsServerInitialized) return;
+            if (_regenLocked) return;
             if (_current.Value >= _maxShield) return;
             if (Time.time < _lastDamageTime + _regenDelay) return;
             _current.Value = Mathf.Min(_maxShield, _current.Value + _regenRate * Time.deltaTime);

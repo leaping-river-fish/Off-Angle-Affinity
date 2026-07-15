@@ -11,16 +11,35 @@ namespace OffAngle.Networking
         [Tooltip("Renderers to hide for the owning client only.")]
         [SerializeField] private Renderer[] _hiddenFromOwner;
 
+        // True while PlayerLifecycleController is overriding the normal
+        // owner-hidden rule (death camera needs the owner to see their own corpse).
+        private bool _forcedVisibleToOwner;
+
         public override void OnStartClient()
         {
             base.OnStartClient();
-            SetVisible(!base.IsOwner);
+            SetVisible(!base.IsOwner || _forcedVisibleToOwner);
         }
 
         public override void OnStopClient()
         {
             base.OnStopClient();
             SetVisible(true);
+        }
+
+        /// <summary>
+        /// Owner-only override called by PlayerLifecycleController. While dead,
+        /// the owner needs to see their own ragdoll from the death camera, which
+        /// the default "hide third-person body from owner" rule would otherwise
+        /// block. Pass false on respawn to restore the normal rule. No-op for
+        /// remote peers (their view of this player never hides these renderers).
+        /// </summary>
+        public void ForceVisibleToOwner(bool force)
+        {
+            if (!base.IsOwner) return;
+
+            _forcedVisibleToOwner = force;
+            SetVisible(_forcedVisibleToOwner);
         }
 
         private void SetVisible(bool visible)

@@ -41,6 +41,12 @@ namespace OffAngle.Weapons
         private int  _reserveAmmo;
         private bool _isReloading;
 
+        // Set by PlayerWeaponController.SetFireLocked, itself driven by
+        // PlayerLifecycleController on death/respawn. This is the seam this
+        // class already asks callers to use rather than adding IsDead checks
+        // elsewhere.
+        private bool _locked;
+
         /// <summary>
         /// The single source of truth for "would firing succeed right now?" -
         /// ammo, reload state, and fire-rate cooldown. Future systems (ADS
@@ -49,6 +55,7 @@ namespace OffAngle.Weapons
         /// </summary>
         public bool CanFire()
         {
+            if (_locked) return false;
             if (_data == null) return false;
             if (_isReloading) return false;
             if (_magazineAmmo <= 0) return false;
@@ -58,11 +65,28 @@ namespace OffAngle.Weapons
 
         public bool CanReload()
         {
+            if (_locked) return false;
             if (_data == null) return false;
             if (_isReloading) return false;
             if (_magazineAmmo >= _data.MagazineSize) return false;
             if (_reserveAmmo <= 0) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Locks/unlocks CanFire()/CanReload() wholesale. Called by
+        /// PlayerWeaponController.SetFireLocked, which PlayerLifecycleController
+        /// drives on death (locked) and respawn (unlocked). Locking also stops
+        /// an in-progress Automatic/Burst hold from continuing to fire.
+        /// </summary>
+        public void SetLocked(bool locked)
+        {
+            _locked = locked;
+            if (_locked)
+            {
+                _isTriggerHeld = false;
+                _burstShotsRemaining = 0;
+            }
         }
 
         /// <summary>

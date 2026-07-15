@@ -44,6 +44,9 @@ namespace OffAngle.Networking
         [Tooltip("Transform whose position/forward defines the aim ray on the owner client (usually the player camera).")]
         [SerializeField] private Transform _cameraTransform;
 
+        [Tooltip("Optional. When assigned, CmdFire/CmdReload reject requests while this reports the player as dead - a server-side backstop in case a modified client bypasses the owner-side Gun lock.")]
+        [SerializeField] private PlayerLifecycleController _lifecycle;
+
         [Header("Server validation")]
         [Tooltip("Fraction of the fire interval the server allows as jitter grace. 0.05 = 5% early accepted.")]
         [SerializeField, Range(0f, 0.5f)] private float _serverFireRateGrace = 0.05f;
@@ -124,6 +127,17 @@ namespace OffAngle.Networking
             _reserveAmmo.Value  = _gun.Data.StartingReserveAmmo;
             _isReloading.Value  = false;
         }
+        /// <summary>
+        /// Owner-side gameplay lock. Called by PlayerLifecycleController on death
+        /// (locked) and respawn (unlocked). Passes straight through to Gun,
+        /// which is the single seam CanFire()/CanReload() already gate on -
+        /// no separate IsDead check needed here or in Gun's callers.
+        /// </summary>
+        public void SetFireLocked(bool locked)
+        {
+            _gun?.SetLocked(locked);
+        }
+
         /// <summary>Server-only. Cancels any in-progress reload and refills ammo to the weapon's starting values. Called by Respawner on respawn.</summary>
         public void ServerResetAmmo()
         {
@@ -175,6 +189,11 @@ namespace OffAngle.Networking
         private void CmdFire(Vector3 origin, Vector3 direction)
         {
             if (_gun == null || _gun.Data == null) return;
+
+            // Defense in depth: the owner-side Gun lock should already stop this
+            // RPC from ever being sent while dead, but the server never trusts
+            // the client - re-check authoritative life state here too.
+            if (_lifecycle != null && _lifecycle.IsDead) return;
 
             GunData data = _gun.Data;
 
@@ -233,6 +252,7 @@ namespace OffAngle.Networking
         [ServerRpc]
         private void CmdReload()
         {
+            if (_lifecycle != null && _lifecycle.IsDead) return;
             TryServerBeginReload();
         }
         /// <summary>
