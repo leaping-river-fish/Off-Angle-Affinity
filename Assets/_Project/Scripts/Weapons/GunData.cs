@@ -19,6 +19,9 @@ namespace OffAngle.Weapons
         [Header("Damage")]
         [Min(0f)] public float Damage = 25f;
 
+        [Tooltip("Damage dealt instead of Damage when the hit registers against a Head hitbox.")]
+        [Min(0f)] public float HeadshotDamage = 50f;
+
         [Header("Fire")]
         [Tooltip("Shots per second.")]
         [Min(0.01f)] public float FireRate = 5f;

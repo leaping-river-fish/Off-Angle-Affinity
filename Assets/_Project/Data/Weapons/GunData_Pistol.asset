@@ -12,7 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9b22cc450a00b8a49a79d36a7de02483, type: 3}
   m_Name: GunData_Pistol
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.GunData
-  Damage: 25
+  Damage: 33
+  HeadshotDamage: 67
   FireRate: 5
   FireMode: 0
   BurstCount: 3

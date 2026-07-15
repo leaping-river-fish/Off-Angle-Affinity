@@ -14,7 +14,10 @@
 //   5. Server does Physics.Raycast in the trusted direction.
 //   6. RpcPlayTracer broadcasts the shot's start/end points to every peer
 //      (hit or miss) so a BulletTracer streak renders locally on each client.
-//   7. Server resolves IDamageable and calls ApplyDamage(DamageInfo).
+//   7. Server reads the hit collider's Hitbox (if any) to resolve a HitZone,
+//      then resolves IDamageable and calls ApplyDamage(DamageInfo) with the
+//      zone-appropriate amount/category (e.g. GunData.HeadshotDamage + Critical
+//      for HitZone.Head). Unmarked colliders default to HitZone.Body.
 //   8. Health SyncVar propagates + ObserversRpc fires damage-number feedback.
 //
 // AUTHORITY NOTE:
@@ -237,14 +240,20 @@ namespace OffAngle.Networking
                 return;
             }
 
+            Hitbox hitbox = hit.collider.GetComponent<Hitbox>();
+            HitZone zone = hitbox != null ? hitbox.Zone : HitZone.Body;
+
+            float amount = zone == HitZone.Head ? data.HeadshotDamage : data.Damage;
+            DamageCategory category = zone == HitZone.Head ? DamageCategory.Critical : DamageCategory.Normal;
+
             DamageInfo info = new DamageInfo(
-                amount:   data.Damage,
+                amount:   amount,
                 attacker: base.NetworkObject,
                 weapon:   data,
                 affinity: data.Affinity,
                 hitPoint: hit.point,
                 hitNormal: hit.normal,
-                category: DamageCategory.Normal);
+                category: category);
 
             damageable.ApplyDamage(info);
         }
