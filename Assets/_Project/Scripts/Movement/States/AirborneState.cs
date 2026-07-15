@@ -9,7 +9,16 @@
 //   This is the momentum preservation contract (see IMovementState.cs).
 //
 // TRANSITIONS OUT:
-//   Controller.isGrounded → GroundedState (clears Y before exit)
+//   Controller.isGrounded → GroundedState  (clears Y before exit; only when
+//                                            the capsule is already fully
+//                                            standing and the key isn't held)
+//   Controller.isGrounded → CrouchingState (capsule still shrunk and/or key
+//                                            still held - e.g. a crouch-jump.
+//                                            CrouchAmount/height are never
+//                                            touched while airborne, so this
+//                                            redirect is what lets the capsule
+//                                            grow back smoothly and safely
+//                                            instead of snapping - see Tick())
 //
 // DOUBLE JUMP (Phase 2 unlock):
 //   The slot is wired now. Set MovementSettings.MaxJumps = 2 to enable.
@@ -89,7 +98,16 @@ namespace OffAngle.Movement.States
             if (ctx.Controller.isGrounded)
             {
                 ctx.Velocity.y = 0f;
-                ctx.StateMachine.TransitionTo(MovementStateId.Grounded);
+
+                // Land into Crouching (not Grounded) if the capsule is still
+                // shrunk or the key is still held. This state never touches
+                // CrouchAmount, so a crouch-jump keeps the capsule crouched
+                // for the whole arc - only CrouchingState knows how to grow
+                // it back safely (headroom-gated, smoothly lerped).
+                if (ctx.CrouchAmount > 0f || ctx.IsCrouchSlideHeld)
+                    ctx.StateMachine.TransitionTo(MovementStateId.Crouching);
+                else
+                    ctx.StateMachine.TransitionTo(MovementStateId.Grounded);
             }
         }
 

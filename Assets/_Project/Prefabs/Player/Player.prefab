@@ -43,7 +43,7 @@ GameObject:
   - component: {fileID: 4939067529969150277}
   - component: {fileID: 7083874579984726336}
   - component: {fileID: 1819906401161292118}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: Capsule
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1026,7 +1026,8 @@ GameObject:
   - component: {fileID: 5993733029980762}
   - component: {fileID: 8432026098743611657}
   - component: {fileID: 2502087121466973166}
-  m_Layer: 0
+  - component: {fileID: 8339025361879157}
+  m_Layer: 8
   m_Name: Player
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1101,6 +1102,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e5dd80688eb53254cb151fbb5a357786, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Movement.MovementStateMachine
+--- !u!114 &8339025361879157
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4475511576505607171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 715952d9808b4418b0fba35b8ad7a01d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.NetworkPlayerCrouch
+  _stateMachine: {fileID: 996271417525511594}
+  _thirdPersonBody: {fileID: 6882330827751275379}
+  _characterController: {fileID: 1921241789862024080}
+  _transitionDuration: 0.15
+  _crouchScaleY: 0.56
+  _crouchControllerHeight: 1
 --- !u!114 &1467481752110121716
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1125,6 +1144,12 @@ MonoBehaviour:
     SlideEntrySpeedThreshold: 4
     SlideDeceleration: 5
     SlideDuration: 1.2
+    CrouchHeight: 1
+    CrouchTransitionDuration: 0.15
+    CrouchCooldown: 0.2
+    StandCheckMask:
+      serializedVersion: 2
+      m_Bits: 4294967039
     WallRunGravityScale: 0.2
     WallRunMinSpeed: 3
     WallRunDuration: 2
@@ -1594,6 +1619,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 2397464270072699754}
+  - component: {fileID: 1195301071428451}
   m_Layer: 0
   m_Name: Camera Pivot
   m_TagString: Untagged
@@ -1621,6 +1647,20 @@ Transform:
   - {fileID: 2526296902446573827}
   m_Father: {fileID: 8824692802582119726}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1195301071428451
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5155480573157171549}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7ad0f5e9233a4bcabd06baadbaf10b92, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Player.CameraCrouchOffset
+  _stateMachine: {fileID: 996271417525511594}
+  _crouchPivotY: 0.9
 --- !u!1 &5984356091257518664
 GameObject:
   m_ObjectHideFlags: 0
@@ -2528,7 +2568,7 @@ GameObject:
   - component: {fileID: 6600096701690782446}
   - component: {fileID: 4111568619652943062}
   - component: {fileID: 3692025868531072553}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: Head
   m_TagString: Untagged
   m_Icon: {fileID: 0}

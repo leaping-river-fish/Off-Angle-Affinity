@@ -79,6 +79,13 @@ namespace OffAngle.Player
                 Settings        = _movementSettings,
             };
 
+            // Capture the Inspector-authored CharacterController dimensions as
+            // "standing" BEFORE any crouch logic can run. This makes the
+            // CharacterController's own values the single source of truth for
+            // standing height/center - CrouchingState never hardcodes them.
+            ctx.StandingHeight = _characterController.height;
+            ctx.StandingCenter = _characterController.center;
+
             _stateMachine.Initialize(ctx);
         }
     }

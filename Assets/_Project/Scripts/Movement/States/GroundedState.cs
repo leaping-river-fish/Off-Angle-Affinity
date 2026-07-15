@@ -5,8 +5,15 @@
 // TRANSITIONS OUT:
 //   Jump pressed              → AirborneState   (applies jump impulse first)
 //   !Controller.isGrounded   → AirborneState   (walked off ledge; XZ preserved)
-//   CrouchSlide + high speed → SlidingState    (Phase 2 — stubbed with log)
-//   CrouchSlide + low speed  → CrouchingState  (Phase 2 — stubbed with log)
+//   CrouchSlide + high speed → SlidingState    (Phase 2 — still stubbed)
+//   CrouchSlide + low speed  → CrouchingState  (Phase 2: implemented; gated by
+//                                                ctx.NextCrouchAllowedTime - see
+//                                                HandleCrouchSlide())
+//
+// NOTE: landing while CrouchSlide is still held (e.g. a crouch-jump) is
+// handled by AirborneState redirecting straight into CrouchingState -
+// Grounded is never entered in that case, so this state can assume
+// IsCrouchSlideHeld is false the moment Tick() starts.
 //
 // MOMENTUM CONTRACT:
 //   - ctx.Velocity.y is set to -2 each Tick to keep isGrounded reliable.
@@ -41,6 +48,14 @@ namespace OffAngle.Movement.States
             // should keep their horizontal momentum (foundation for slide-on-land,
             // Phase 2). Hard landing effects belong in an animation/VFX layer.
             ctx.Velocity.y = 0f;
+
+            // INVARIANT: Grounded always means fully standing (CrouchAmount
+            // already 0, capsule already at StandingHeight/StandingCenter).
+            // CrouchingState only transitions here once CrouchAmount reaches
+            // 0, and AirborneState redirects a crouched/held landing into
+            // CrouchingState instead of here (see AirborneState.Tick()). Do
+            // NOT force-reset the capsule here - an un-gated reset could grow
+            // it into geometry without ever checking headroom.
         }
 
         public void Tick(MovementStateContext ctx, float deltaTime)
@@ -131,6 +146,13 @@ namespace OffAngle.Movement.States
 
         private void HandleCrouchSlide(MovementStateContext ctx)
         {
+            // Spam cooldown: refuse a fresh press until CrouchCooldown seconds
+            // have passed since we last stood back up (stamped by
+            // CrouchingState.Exit()). Only gates a NEW press through this
+            // method - never releasing the key to stand.
+            if (Time.time < ctx.NextCrouchAllowedTime)
+                return;
+
             // Measure horizontal speed only. ctx.Velocity.y is the -2 ground
             // press constant, not actual downward movement, so exclude it.
             float horizontalSpeed = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z).magnitude;
@@ -142,8 +164,7 @@ namespace OffAngle.Movement.States
             }
             else
             {
-                // PHASE 2: uncomment when CrouchingState is created and registered.
-                // ctx.StateMachine.TransitionTo(MovementStateId.Crouching);
+                ctx.StateMachine.TransitionTo(MovementStateId.Crouching);
             }
         }
     }

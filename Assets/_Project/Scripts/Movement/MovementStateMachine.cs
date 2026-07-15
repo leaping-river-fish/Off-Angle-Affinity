@@ -41,9 +41,9 @@ namespace OffAngle.Movement
             // ── Phase 1: fully implemented states ────────────────────────
             Register(new GroundedState());
             Register(new AirborneState());
+            Register(new CrouchingState());
 
             // ── Phase 2+: uncomment each line when the class is created ──
-            // Register(new CrouchingState());
             // Register(new SlidingState());
             // Register(new WallRunningState());
             // Register(new GrapplingState());
@@ -111,6 +111,17 @@ namespace OffAngle.Movement
         public MovementStateId CurrentStateId => _current?.StateId ?? MovementStateId.Grounded;
 
         /// <summary>
+        /// Normalized crouch progress (0 = standing, 1 = fully crouched).
+        /// Presentation/networking layers (CameraCrouchOffset, NetworkPlayerCrouch)
+        /// poll this instead of reaching into MovementStateContext directly -
+        /// this is the one seam movement exposes outward for crouch consumers.
+        /// </summary>
+        public float CrouchAmount => _ctx?.CrouchAmount ?? 0f;
+
+        /// <summary>True while CrouchingState is the active state.</summary>
+        public bool IsCrouching => CurrentStateId == MovementStateId.Crouching;
+
+        /// <summary>
         /// Clears input carried over while this component was disabled.
         /// JumpPending/CrouchSlidePending are set by input event subscriptions
         /// that run regardless of this component's enabled state (Unity's
@@ -126,6 +137,19 @@ namespace OffAngle.Movement
             _ctx.JumpPending = false;
             _ctx.CrouchSlidePending = false;
             _ctx.Velocity = Vector3.zero;
+
+            // Force back to standing on respawn - a player who died mid-crouch
+            // must not spawn with a shrunk capsule. IsCrouchSlideHeld is also
+            // cleared so a key still physically held at the moment of death
+            // does not immediately re-trigger Crouching on the fresh spawn.
+            _ctx.IsCrouchSlideHeld = false;
+            _ctx.CrouchAmount = 0f;
+            _ctx.NextCrouchAllowedTime = 0f;
+            if (_ctx.Controller != null)
+            {
+                _ctx.Controller.height = _ctx.StandingHeight;
+                _ctx.Controller.center = _ctx.StandingCenter;
+            }
         }
 
         // ------------------------------------------------------------------

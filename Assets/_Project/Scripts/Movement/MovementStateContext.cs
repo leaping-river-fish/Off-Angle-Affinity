@@ -77,6 +77,41 @@ namespace OffAngle.Movement
         /// Must be server-authoritative in multiplayer to prevent cheat injection.
         /// </summary>
         public int RemainingJumps;
+
+        /// <summary>
+        /// Normalized crouch progress: 0 = fully standing, 1 = fully crouched.
+        /// Owned and smoothed exclusively by CrouchingState via Mathf.MoveTowards.
+        /// This is the single source of truth every crouch consumer reads from -
+        /// CameraCrouchOffset (camera pivot height) and NetworkPlayerCrouch
+        /// (third-person capsule scale) both poll this instead of duplicating
+        /// their own crouch/stand timers. Being continuous rather than a bool
+        /// also lets future systems (movement noise, stealth) scale smoothly
+        /// with crouch depth instead of snapping.
+        /// </summary>
+        public float CrouchAmount;
+
+        /// <summary>
+        /// CharacterController.height captured once at startup (PlayerController.Awake),
+        /// before any crouch logic runs. This is the single source of truth for
+        /// "standing" - authored directly on the CharacterController in the
+        /// Inspector rather than duplicated as a separate tunable.
+        /// </summary>
+        public float StandingHeight;
+
+        /// <summary>
+        /// CharacterController.center captured once at startup, paired with
+        /// StandingHeight above.
+        /// </summary>
+        public Vector3 StandingCenter;
+
+        /// <summary>
+        /// Time.time value before which a fresh crouch press is refused.
+        /// Set by CrouchingState.Exit() (i.e. the moment the player is fully
+        /// back to standing) to CrouchCooldown seconds in the future. Only
+        /// gates NEW crouch presses in GroundedState.HandleCrouchSlide() -
+        /// it never delays releasing the key to stand back up.
+        /// </summary>
+        public float NextCrouchAllowedTime;
     }
 
     // World scale reference: 1 Unity unit = 1 meter. Defaults below match the
@@ -112,6 +147,15 @@ namespace OffAngle.Movement
         public float SlideEntrySpeedThreshold = 4f;
         public float SlideDeceleration        = 5f;   // PHASE 2: m/s² friction during slide
         public float SlideDuration            = 1.2f; // PHASE 2: max seconds in slide
+
+        [Tooltip("CharacterController height while fully crouched, in meters. Center is derived automatically as height/2 so the capsule always shrinks from the top with feet planted.")]
+        public float CrouchHeight = 1.0f;
+        [Tooltip("Seconds to fully transition between standing and crouching. Keep NetworkPlayerCrouch's transition duration equal to this so the third-person capsule matches the owner's local capsule.")]
+        public float CrouchTransitionDuration = 0.15f;
+        [Tooltip("Minimum seconds after standing back up before a fresh crouch press is accepted again. Prevents rapid spam-tapping from re-triggering the transition mid-cycle. Does not delay releasing the key to stand.")]
+        public float CrouchCooldown = 0.2f;
+        [Tooltip("Layers checked for overhead obstructions before allowing a return to standing. Must exclude the player's own layer (e.g. \"Player\") to avoid self-collision false positives.")]
+        public LayerMask StandCheckMask = ~0;
 
         [Header("Wall Run")]
         [Tooltip("Fraction of normal gravity applied during wall run (0 = floaty, 1 = full fall).")]

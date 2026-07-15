@@ -69,13 +69,18 @@
 // ───────────────────────────────────────────────────────────────────────────
 //   Sprint + Grapple fire   movement unchanged until grapple connects
 //   Crouch + camera pitch   PlayerCameraController always runs; unaffected
+//   Crouch + camera height  CameraCrouchOffset (separate component, Camera
+//                           Pivot) reads ctx.CrouchAmount via
+//                           MovementStateMachine.CrouchAmount; movement code
+//                           never reaches into the camera
 //   Any locomotion + weapon Weapon system is entirely separate
 //
 // ───────────────────────────────────────────────────────────────────────────
 // PHYSICS MODIFIERS PER STATE
 // ───────────────────────────────────────────────────────────────────────────
 //   Grounded    normal gravity (held with -2 press), full XZ input control
-//   Crouching   normal gravity, speed capped to CrouchSpeed
+//   Crouching   normal gravity, speed capped to CrouchSpeed, capsule height
+//               smoothly Lerp'd via CrouchAmount (see MovementCapsuleUtility)
 //   Airborne    full gravity, AirControlMultiplier × AirAcceleration
 //   Sliding     slope-sensitive gravity, near-zero input influence (friction)
 //   WallRunning WallRunGravityScale × gravity, input locked to wall axis
@@ -99,9 +104,18 @@
 // ───────────────────────────────────────────────────────────────────────────
 // MULTIPLAYER SYNC NOTES
 // ───────────────────────────────────────────────────────────────────────────
-//   Architecture: client-predictive, server-authoritative.
+//   Architecture: client-predictive, server-authoritative (aspirational).
+//   Current reality: movement is client-authoritative via NetworkTransform;
+//   CrouchingState follows that same model rather than the future ideal below.
 //   ctx.Velocity     — primary replicated value; StateId is inferred from it.
 //   RemainingJumps   — server-authoritative (anti-cheat critical path).
+//   CrouchAmount     — NOT itself replicated. NetworkPlayerCrouch syncs a
+//                      single owner-writable SyncVar<bool> (IsCrouching) via
+//                      WritePermission.ClientUnsynchronized +
+//                      ReadPermission.ExcludeOwner, and every peer locally
+//                      re-derives a smooth scale from that bool. Keeps
+//                      bandwidth to one RPC per crouch/stand transition
+//                      instead of streaming a float every frame.
 //   GrapplingState   — requires NetworkVariable<Vector3> for attach point.
 //   WallRunningState — server-side surface detection must match client.
 //   ZiplineState     — server owns zipline path position; clients interpolate.
@@ -128,9 +142,9 @@ namespace OffAngle.Movement
         // ── Phase 1: implemented ─────────────────────────────────────────
         Grounded,
         Airborne,
+        Crouching,
 
         // ── Phase 2: enum slots reserved; classes not yet created ────────
-        Crouching,
         Sliding,
 
         // ── Phase 3: enum slots reserved ─────────────────────────────────
