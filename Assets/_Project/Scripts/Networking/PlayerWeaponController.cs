@@ -84,12 +84,17 @@ namespace OffAngle.Networking
             PushAmmoState();
 
             if (!base.IsOwner) return;
-            if (_inputReader == null || _gun == null) return;
+            if (_inputReader == null) return;
 
             _inputReader.FireStarted += HandleFireStarted;
             _inputReader.FireCanceled += HandleFireCanceled;
             _inputReader.ReloadStarted += HandleReloadStarted;
-            _gun.RequestFire += HandleRequestFire;
+
+            // _gun may still be unassigned here if PlayerWeaponEquipper hasn't
+            // equipped a weapon yet - SetGun() picks up the RequestFire
+            // subscription once it does.
+            if (_gun != null)
+                _gun.RequestFire += HandleRequestFire;
         }
 
         public override void OnStopClient()
@@ -101,7 +106,32 @@ namespace OffAngle.Networking
             _inputReader.FireStarted -= HandleFireStarted;
             _inputReader.FireCanceled -= HandleFireCanceled;
             _inputReader.ReloadStarted -= HandleReloadStarted;
-            _gun.RequestFire -= HandleRequestFire;
+
+            if (_gun != null)
+                _gun.RequestFire -= HandleRequestFire;
+        }
+
+        /// <summary>
+        /// Swaps the Gun this controller fires against and validates ammo
+        /// for. Called by PlayerWeaponEquipper whenever the equipped weapon
+        /// changes (initial spawn equip, respawn, or a menu/category switch).
+        /// Re-homes the RequestFire subscription on the owner and reseeds
+        /// ammo on the server for the new weapon's GunData - no duplicated
+        /// seeding logic, this just calls the same path Respawner already uses.
+        /// </summary>
+        public void SetGun(Gun gun)
+        {
+            if (_gun == gun) return;
+
+            if (base.IsOwner && _gun != null)
+                _gun.RequestFire -= HandleRequestFire;
+
+            _gun = gun;
+
+            if (base.IsOwner && _gun != null)
+                _gun.RequestFire += HandleRequestFire;
+
+            ServerResetAmmo();
         }
 
         private void Awake()

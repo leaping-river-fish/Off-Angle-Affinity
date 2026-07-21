@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cdebc151534a4a348beb27ba18fe1234, type: 3}
+  m_Name: WeaponDefinition_BurstRifle
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.WeaponDefinition
+  Id: burst_rifle
+  DisplayName: Burst Rifle
+  Category: {fileID: 11400000, guid: 74048c94991cac74e9ba0fb0d2cbfc96, type: 2}
+  Data: {fileID: 11400000, guid: 146be9a9c854f2b42b27594f85265365, type: 2}
+  WeaponPrefab: {fileID: 3639820871987987675, guid: 73907917da3b9e54a9a7731806dc333c, type: 3}

@@ -65,6 +65,7 @@ namespace OffAngle.Core
 
         public event Action          InteractStarted;
         public event Action<float>   SwitchWeaponEvent;
+        public event Action          OpenLoadoutMenuStarted;
 
         // ------------------------------------------------------------------
         // Polled properties — cached for states that need current values
@@ -88,6 +89,7 @@ namespace OffAngle.Core
         private InputAction _crouchSlide;
         private InputAction _interact;
         private InputAction _switchWeapon;
+        private InputAction _openLoadoutMenu;
 
         // ------------------------------------------------------------------
         // Lifecycle
@@ -109,6 +111,7 @@ namespace OffAngle.Core
             _crouchSlide  = map.FindAction("CrouchSlide",  throwIfNotFound: true);
             _interact     = map.FindAction("Interact",     throwIfNotFound: true);
             _switchWeapon = map.FindAction("SwitchWeapon", throwIfNotFound: true);
+            _openLoadoutMenu = map.FindAction("WeaponMenu", throwIfNotFound: true);
         }
 
         private void OnEnable()
@@ -130,6 +133,7 @@ namespace OffAngle.Core
             _crouchSlide.canceled   += OnCrouchSlideCanceled;
             _interact.performed     += OnInteract;
             _switchWeapon.performed += OnSwitchWeapon;
+            _openLoadoutMenu.performed += OnOpenLoadoutMenu;
         }
 
         private void OnDisable()
@@ -153,6 +157,7 @@ namespace OffAngle.Core
             _crouchSlide.canceled   -= OnCrouchSlideCanceled;
             _interact.performed     -= OnInteract;
             _switchWeapon.performed -= OnSwitchWeapon;
+            _openLoadoutMenu.performed -= OnOpenLoadoutMenu;
 
             _actionAsset?.Disable();
         }
@@ -211,6 +216,9 @@ namespace OffAngle.Core
 
         private void OnSwitchWeapon(InputAction.CallbackContext ctx)
             => SwitchWeaponEvent?.Invoke(ctx.ReadValue<float>());
+
+        private void OnOpenLoadoutMenu(InputAction.CallbackContext ctx)
+            => OpenLoadoutMenuStarted?.Invoke();
 
         private void ResolveActionAsset()
         {
