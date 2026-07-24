@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cdebc151534a4a348beb27ba18fe1234, type: 3}
+  m_Name: WeaponDefinition_Shotgun
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.WeaponDefinition
+  Id: shotgun
+  DisplayName: Shotgun
+  Category: {fileID: 11400000, guid: 74048c94991cac74e9ba0fb0d2cbfc96, type: 2}
+  Data: {fileID: 11400000, guid: f9fe116936e432a46a275c7afb08483f, type: 2}
+  WeaponPrefab: {fileID: 3639820871987987675, guid: 155110509551fc848911ab0217bbf68a, type: 3}

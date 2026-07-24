@@ -5,6 +5,11 @@
 // instance; PlayerWeaponController reads the same reference on the server for
 // authoritative validation. No values are duplicated on the Gun MonoBehaviour.
 //
+// FireMode (below) and ShotBehavior are intentionally independent: FireMode
+// only governs semi/auto/burst trigger timing for Instant shot behaviors,
+// while ShotBehavior decides what actually gets created/calculated on fire
+// (hitscan, shotgun pellets, projectile, beam, ...). See ShotBehavior.cs.
+//
 // Create instances via: Assets > Create > Off-Angle > Weapons > Gun Data
 // =============================================================================
 
@@ -19,7 +24,7 @@ namespace OffAngle.Weapons
         [Header("Damage")]
         [Min(0f)] public float Damage = 25f;
 
-        [Tooltip("Damage dealt instead of Damage when the hit registers against a Head hitbox.")]
+        [Tooltip("Damage dealt instead of Damage when the hit registers against a Head hitbox. Shared by every instant shot behavior (Hitscan, Projectile direct hits, and future Piercing/Ricochet).")]
         [Min(0f)] public float HeadshotDamage = 50f;
 
         [Header("Fire")]
@@ -45,14 +50,15 @@ namespace OffAngle.Weapons
         [Tooltip("If true, a reload starts automatically when the magazine hits zero and reserve ammo remains.")]
         public bool AutoReloadOnEmpty = true;
 
-        [Tooltip("Hitscan is currently the only implemented shot type. Projectile is reserved for future expansion.")]
-        public ShotType ShotType = ShotType.Hitscan;
+        [Header("Shot Behavior")]
+        [Tooltip("What this weapon actually fires. Leave unassigned to use standard Hitscan (preserves existing weapon behavior unchanged). Assign a ShotBehavior asset (Shotgun, Projectile, Beam, ...) to change how this weapon delivers damage - completely independent of FireMode above.")]
+        public ShotBehavior ShotBehavior;
 
-        [Tooltip("Max hitscan distance in meters.")]
+        [Tooltip("Max hitscan/raycast distance in meters. Also used by Shotgun pellets and the Projectile aim-correction raycast.")]
         [Min(0f)] public float Range = 100f;
 
         [Header("Targeting")]
-        [Tooltip("Layers the hitscan raycast may hit.")]
+        [Tooltip("Layers the hitscan raycast (and other instant behaviors) may hit.")]
         public LayerMask HitMask = ~0;
 
         [Header("Affinity (placeholder — no runtime effect yet)")]

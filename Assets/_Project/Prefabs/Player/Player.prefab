@@ -1353,7 +1353,7 @@ MonoBehaviour:
   _networkObjectCache: {fileID: 0}
   _weaponController: {fileID: 5993733029980762}
   _inputReader: {fileID: 5347879498661852044}
-  _weaponHolder: {fileID: 791006622424047541}
+  _weaponHolder: {fileID: 5778633393900070154}
   _categoryCycleOrder:
   - {fileID: 11400000, guid: 74048c94991cac74e9ba0fb0d2cbfc96, type: 2}
   - {fileID: 11400000, guid: 3407409f15daba140a3a4d3761c8277e, type: 2}

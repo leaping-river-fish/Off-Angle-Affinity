@@ -28,10 +28,28 @@ namespace OffAngle.Weapons
 
         /// <summary>
         /// Raised once per shot that should actually be fired, after the
-        /// current FireMode has decided it's time. PlayerWeaponController
-        /// subscribes to this and sends CmdFire for each invocation.
+        /// current FireMode has decided it's time. Only raised for Instant
+        /// shot behaviors. PlayerWeaponController subscribes to this and
+        /// sends CmdFire for each invocation.
         /// </summary>
         public event Action RequestFire;
+
+        /// <summary>
+        /// Raised instead of RequestFire for Continuous/Charged shot
+        /// behaviors, which ignore FireMode and define their own
+        /// hold-to-sustain / hold-to-charge semantics. PlayerWeaponController
+        /// uses these to drive beam/charge networking.
+        /// </summary>
+        public event Action HoldStarted;
+        public event Action HoldStopped;
+
+        /// <summary>
+        /// How the currently assigned ShotBehavior wants trigger input wired.
+        /// Defaults to Instant (preserving today's behavior) when no
+        /// ShotBehavior is assigned - see ShotBehavior.cs / ShotDeliveryKind.cs.
+        /// </summary>
+        private ShotDeliveryKind CurrentKind =>
+            _data != null && _data.ShotBehavior != null ? _data.ShotBehavior.Kind : ShotDeliveryKind.Instant;
 
         private float _localCooldownUntil;
         private bool  _isTriggerHeld;
@@ -77,13 +95,19 @@ namespace OffAngle.Weapons
         /// Locks/unlocks CanFire()/CanReload() wholesale. Called by
         /// PlayerWeaponController.SetFireLocked, which PlayerLifecycleController
         /// drives on death (locked) and respawn (unlocked). Locking also stops
-        /// an in-progress Automatic/Burst hold from continuing to fire.
+        /// an in-progress Automatic/Burst hold from continuing to fire, and
+        /// raises HoldStopped if a Continuous/Charged behavior was mid-hold so
+        /// PlayerWeaponController can tell the server to stop it too.
         /// </summary>
         public void SetLocked(bool locked)
         {
+            bool wasHeld = _isTriggerHeld;
             _locked = locked;
             if (_locked)
             {
+                if (wasHeld && CurrentKind != ShotDeliveryKind.Instant)
+                    HoldStopped?.Invoke();
+
                 _isTriggerHeld = false;
                 _burstShotsRemaining = 0;
             }
@@ -102,16 +126,28 @@ namespace OffAngle.Weapons
         }
 
         /// <summary>
-        /// Called on trigger press. Semi-auto fires immediately and does
-        /// nothing further until the next press. Automatic fires immediately
-        /// and keeps firing in Update() while held. Burst starts a fixed-length
-        /// burst that runs to completion in Update() regardless of hold state -
-        /// re-pressing while a burst is in progress does not start another one.
+        /// Called on trigger press. For Instant shot behaviors: Semi-auto
+        /// fires immediately and does nothing further until the next press.
+        /// Automatic fires immediately and keeps firing in Update() while
+        /// held. Burst starts a fixed-length burst that runs to completion in
+        /// Update() regardless of hold state - re-pressing while a burst is in
+        /// progress does not start another one.
+        ///
+        /// For Continuous/Charged shot behaviors, FireMode is ignored entirely
+        /// - this just raises HoldStarted once (gated by CanFire()) and lets
+        /// PlayerWeaponController drive the rest.
         /// </summary>
         public void StartFire()
         {
             _isTriggerHeld = true;
             if (_data == null) return;
+
+            if (CurrentKind != ShotDeliveryKind.Instant)
+            {
+                if (!CanFire()) return;
+                HoldStarted?.Invoke();
+                return;
+            }
 
             if (_data.FireMode == FireMode.Burst)
             {
@@ -122,15 +158,21 @@ namespace OffAngle.Weapons
             AttemptFire();
         }
 
-        /// <summary>Called on trigger release. Stops Automatic; has no effect on a Burst already in progress.</summary>
+        /// <summary>Called on trigger release. Stops Automatic and any Continuous/Charged hold; has no effect on a Burst already in progress.</summary>
         public void StopFire()
         {
+            bool wasHeld = _isTriggerHeld;
             _isTriggerHeld = false;
+
+            if (wasHeld && CurrentKind != ShotDeliveryKind.Instant)
+                HoldStopped?.Invoke();
         }
 
         private void Update()
         {
             if (_data == null) return;
+            if (CurrentKind != ShotDeliveryKind.Instant) return; // Continuous/Charged behaviors don't use the discrete FireMode loop.
+
             switch (_data.FireMode)
             {
                 case FireMode.Automatic:
