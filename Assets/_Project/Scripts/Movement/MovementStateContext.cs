@@ -71,12 +71,28 @@ namespace OffAngle.Movement
         public bool IsCrouchSlideHeld;
 
         /// <summary>
-        /// Remaining jumps in the current airborne bout.
-        /// Phase 1: MaxJumps = 1, so this is always 0 while airborne.
-        /// Phase 2: set MaxJumps = 2 in MovementSettings to unlock double jump.
-        /// Must be server-authoritative in multiplayer to prevent cheat injection.
+        /// Remaining jumps in the current airborne bout. Reset to
+        /// EffectiveMaxJumps on every landing (see AirborneState.Tick()) and
+        /// decremented by one per jump (ground jump or airborne jump alike -
+        /// see GroundedState/CrouchingState/AirborneState/SlidingState).
+        /// Must be server-authoritative in multiplayer to prevent cheat
+        /// injection - not yet enforced since movement overall is still
+        /// client-authoritative (see MovementStateMachine header).
         /// </summary>
         public int RemainingJumps;
+
+        /// <summary>
+        /// Additive modifier to Settings.MaxJumps, set via
+        /// MovementStateMachine.AddMaxJumpsBonus/RemoveMaxJumpsBonus. This is
+        /// the seam future Affinities/perks/buffs use to grant extra jumps
+        /// without ever touching the serialized base value or hardcoding
+        /// around a specific jump count. Not reset on respawn - treated as a
+        /// persistent loadout/perk value, not a transient effect.
+        /// </summary>
+        public int BonusMaxJumps;
+
+        /// <summary>The jump budget after applying BonusMaxJumps, clamped to at least 1.</summary>
+        public int EffectiveMaxJumps => Mathf.Max(1, Settings.MaxJumps + BonusMaxJumps);
 
         /// <summary>
         /// Normalized crouch progress: 0 = fully standing, 1 = fully crouched.
@@ -112,6 +128,63 @@ namespace OffAngle.Movement
         /// it never delays releasing the key to stand back up.
         /// </summary>
         public float NextCrouchAllowedTime;
+
+        /// <summary>
+        /// Seconds remaining in the current slide. Set to Settings.SlideDuration
+        /// by SlidingState.Enter(), counted down in SlidingState.Tick(). Reset
+        /// to 0 by SlidingState.Exit() and by MovementStateMachine.ResetTransientInput()
+        /// so a state frozen mid-slide by death self-heals into Grounded/Crouching
+        /// on its very next Tick after respawn.
+        /// </summary>
+        public float SlideTimer;
+
+        /// <summary>
+        /// Time.time value before which a fresh slide attempt is refused.
+        /// Stamped by SlidingState.Exit() to Time.time + Settings.SlideCooldown.
+        /// Deliberately separate from NextCrouchAllowedTime so slide-spam
+        /// prevention can be tuned independently of crouch-spam prevention -
+        /// see GroundedState.HandleCrouchSlide().
+        /// </summary>
+        public float NextSlideAllowedTime;
+
+        // ------------------------------------------------------------------
+        // Reusable movement-ability hooks — infrastructure for future
+        // Affinity/perk/buff-driven movement (dashes, wall runs, grapples,
+        // blinks, altered gravity, ...). Every Phase-1/2 state already reads
+        // SpeedMultiplier/GravityMultiplier/InputLocked, so a future ability
+        // can lean on these instead of re-implementing its own temporary
+        // override. Mutate these ONLY through MovementStateMachine's public
+        // setters (SetSpeedMultiplier, SetGravityMultiplier, SetInputLocked,
+        // BeginAbilityMovement) rather than reaching into this context
+        // directly - that keeps a single seam for debugging.
+        // ------------------------------------------------------------------
+
+        /// <summary>Multiplies ground/air/slide speed calculations. 1 = unmodified.</summary>
+        public float SpeedMultiplier = 1f;
+
+        /// <summary>Multiplies gravity accumulation in AirborneState. 1 = unmodified.</summary>
+        public float GravityMultiplier = 1f;
+
+        /// <summary>
+        /// While true, states treat MoveInput as Vector2.zero and discard
+        /// JumpPending/CrouchSlidePending without acting on them - the input
+        /// events themselves still fire (PlayerInputReader is unaffected),
+        /// so nothing queues up and fires as a surprise the instant this
+        /// unlocks. Intended for abilities that need to fully own locomotion
+        /// (e.g. a channelled grapple) without disabling the whole
+        /// MovementStateMachine the way death does.
+        /// </summary>
+        public bool InputLocked;
+
+        /// <summary>
+        /// The ability currently driving MovementStateId.AbilityMovement, or
+        /// null when no ability is active. Set by
+        /// MovementStateMachine.BeginAbilityMovement(); cleared by
+        /// AbilityMovementState on natural completion or by
+        /// MovementStateMachine.InterruptCurrentAction()/ResetTransientInput()
+        /// on an early exit. See IAbilityMovementDriver.cs.
+        /// </summary>
+        public IAbilityMovementDriver ActiveAbilityDriver;
     }
 
     // World scale reference: 1 Unity unit = 1 meter. Defaults below match the
@@ -126,13 +199,15 @@ namespace OffAngle.Movement
         [Tooltip("Sprint speed in meters/second.")]
         public float SprintSpeed = 7f;
         public float CrouchSpeed = 2.5f;   // PHASE 2: used by CrouchingState
+        [Tooltip("How much speed ABOVE the walk/sprint/crouch cap decays per second (m/s²) while grounded or crouched - momentum at or below the cap is never affected. This is what lets bunny hopping (chaining jumps to carry speed built up in AirborneState/SlidingState) work: Airborne applies no such decay, so re-jumping is always better than staying grounded once above normal speed. Lower = momentum lasts longer between hops; higher = settles back to normal speed faster; 0 = momentum never decays while grounded.")]
+        public float BunnyHopMomentumDecay = 6f;
 
         [Header("Jumping")]
         [Tooltip("Apex height in meters. Drives jump velocity via v = sqrt(2 * h * g).")]
         public float JumpHeight  = 0.9f;
         [Tooltip("Downward acceleration in m/s². Increase for snappier feel.")]
         public float Gravity     = 20f;
-        [Tooltip("1 = single jump. Set to 2 to enable double jump (Phase 2).")]
+        [Tooltip("Base number of jumps before the player must land again. 1 = single jump, 2 = double jump, etc. Not hardcoded to any specific count - runtime bonuses stack on top via MovementStateMachine.AddMaxJumpsBonus (see MovementStateContext.EffectiveMaxJumps), so Affinities/perks/buffs can grant extra jumps without touching this value.")]
         public int   MaxJumps    = 1;
 
         [Header("Air Movement")]
@@ -143,10 +218,30 @@ namespace OffAngle.Movement
         public float AirAcceleration      = 15f;
 
         [Header("Slide / Crouch")]
-        [Tooltip("Horizontal speed (m/s) required at Left Ctrl press to enter Slide instead of Crouch. Tune in playtesting.")]
+        [Tooltip("Horizontal speed (m/s) required at Left Ctrl press to enter Slide instead of Crouch. Must be greater than SlideMinSpeed, or the slide will end on the very first Tick. Tune in playtesting.")]
         public float SlideEntrySpeedThreshold = 4f;
-        public float SlideDeceleration        = 5f;   // PHASE 2: m/s² friction during slide
-        public float SlideDuration            = 1.2f; // PHASE 2: max seconds in slide
+        [Tooltip("Maximum seconds a single slide can last before it automatically ends (independent of speed).")]
+        public float SlideDuration            = 1.2f;
+        [Tooltip("Hard speed ceiling for sliding, in m/s. Entry speed above this is clamped down; entry speed below this is preserved as-is (see SlidingState.Enter).")]
+        public float SlideMaxSpeed            = 9f;
+        [Tooltip("Horizontal speed (m/s) below which an active slide automatically ends. Should be lower than SlideEntrySpeedThreshold.")]
+        public float SlideMinSpeed            = 2.5f;
+        [Tooltip("Seconds after a slide ends before another slide can begin. Independent of CrouchCooldown so slide-spam prevention can be tuned separately from crouch-spam prevention.")]
+        public float SlideCooldown            = 0.5f;
+        [Tooltip("Acceleration (m/s²) applied toward the player's held move direction while sliding. Lets the player steer without killing slide speed the way ground movement would.")]
+        public float SlideSteerAcceleration   = 10f;
+        [Tooltip("Acceleration (m/s²) applied along the slope's downhill direction while sliding, and subtracted while sliding uphill. Flat ground has none of this and holds speed constant. Set to 0 to disable slope sensitivity entirely - speed then never changes on its own while sliding.")]
+        public float SlideSlopeAcceleration   = 6f;
+
+        [Header("Slide Restrictions")]
+        [Tooltip("If true, pressing Jump during a slide launches the player (slide-jump: full horizontal speed preserved + vertical impulse). If false, Jump presses during a slide are ignored.")]
+        public bool AllowJumpDuringSlide      = true;
+        [Tooltip("Not enforced by movement code - exposed via MovementStateMachine.CanFire for the weapon system to query if/when it integrates this restriction.")]
+        public bool AllowFireDuringSlide      = true;
+        [Tooltip("Not enforced by movement code - exposed via MovementStateMachine.CanReload for the weapon system to query if/when it integrates this restriction.")]
+        public bool AllowReloadDuringSlide    = true;
+        [Tooltip("Not enforced by movement code - exposed via MovementStateMachine.CanUseMovementAbilities for future ability systems to query.")]
+        public bool AllowAbilitiesDuringSlide = true;
 
         [Tooltip("CharacterController height while fully crouched, in meters. Center is derived automatically as height/2 so the capsule always shrinks from the top with feet planted.")]
         public float CrouchHeight = 1.0f;

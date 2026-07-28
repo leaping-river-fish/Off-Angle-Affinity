@@ -1118,20 +1118,30 @@ MonoBehaviour:
     WalkSpeed: 4.5
     SprintSpeed: 7
     CrouchSpeed: 2.5
-    JumpHeight: 0.9
+    BunnyHopMomentumDecay: 6
+    JumpHeight: 1.5
     Gravity: 20
-    MaxJumps: 1
+    MaxJumps: 2
     AirControlMultiplier: 0.35
     AirAcceleration: 15
     SlideEntrySpeedThreshold: 4
     SlideDeceleration: 5
-    SlideDuration: 1.2
+    SlideDuration: 1
+    SlideMaxSpeed: 12
+    SlideMinSpeed: 5
+    SlideCooldown: 0.5
+    SlideSteerAcceleration: 10
+    SlideSlopeAcceleration: 6
+    AllowJumpDuringSlide: 1
+    AllowFireDuringSlide: 1
+    AllowReloadDuringSlide: 1
+    AllowAbilitiesDuringSlide: 1
     CrouchHeight: 1
     CrouchTransitionDuration: 0.15
     CrouchCooldown: 0.2
     StandCheckMask:
       serializedVersion: 2
-      m_Bits: 4294967039
+      m_Bits: 55
     WallRunGravityScale: 0.2
     WallRunMinSpeed: 3
     WallRunDuration: 2
@@ -1335,6 +1345,7 @@ MonoBehaviour:
   _cameraTransform: {fileID: 3639447519269023098}
   _lifecycle: {fileID: 8432026098743611657}
   _serverFireRateGrace: 0.05
+  _muzzleClearanceDistance: 0.6
   _tracerPrefab: {fileID: 2952079945757915, guid: c18e52cbe5e74825a3f5132645a2701e, type: 3}
 --- !u!114 &7857586929583657532
 MonoBehaviour:
@@ -1685,6 +1696,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Player.CameraCrouchOffset
   _stateMachine: {fileID: 996271417525511594}
   _crouchPivotY: 0.9
+  _slideTransitionDuration: 0.12
 --- !u!1 &5984356091257518664
 GameObject:
   m_ObjectHideFlags: 0

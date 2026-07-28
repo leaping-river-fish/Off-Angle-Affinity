@@ -81,11 +81,23 @@
 //   Grounded    normal gravity (held with -2 press), full XZ input control
 //   Crouching   normal gravity, speed capped to CrouchSpeed, capsule height
 //               smoothly Lerp'd via CrouchAmount (see MovementCapsuleUtility)
-//   Airborne    full gravity, AirControlMultiplier × AirAcceleration
-//   Sliding     slope-sensitive gravity, near-zero input influence (friction)
+//   Airborne    full gravity × GravityMultiplier, AirControlMultiplier ×
+//               AirAcceleration × SpeedMultiplier
+//   Sliding     flat ground holds speed CONSTANT (no ambient friction);
+//               slope adds/removes speed via SlideSlopeAcceleration
+//               (downhill assists, uphill resists); steering input nudges
+//               direction without killing speed
+//   AbilityMovement fully delegated to the active IAbilityMovementDriver -
+//               no built-in gravity/friction/input model of its own
 //   WallRunning WallRunGravityScale × gravity, input locked to wall axis
 //   Grappling   swing physics override, pendulum motion, minimal direct input
 //   Zipline     gravity suppressed, path-locked, no player input
+//
+//   GravityMultiplier / SpeedMultiplier / InputLocked (on MovementStateContext,
+//   set via MovementStateMachine.SetGravityMultiplier/SetSpeedMultiplier/
+//   SetInputLocked) are reusable hooks every Phase-1/2 state already respects -
+//   future abilities can lean on them instead of each reimplementing a
+//   temporary gravity/speed/input override.
 //
 // ───────────────────────────────────────────────────────────────────────────
 // EDGE CASES TO DESIGN AGAINST (implement mitigations in each state)
@@ -100,6 +112,14 @@
 //                          intentional — not an exploit.
 //   Grapple through geo    Require line-of-sight raycast before attaching.
 //   Wall kick vs double    Wall kick is free; wall run + jump consumes a charge.
+//   Bunny hop momentum     INTENTIONAL, not an exploit: GroundedState/
+//                          CrouchingState preserve speed above the walk/
+//                          sprint/crouch cap instead of clamping it away (see
+//                          GroundMomentum.cs) and Airborne applies no speed
+//                          decay at all - only BunnyHopMomentumDecay bleeds
+//                          it off, and only while grounded. Chaining jumps is
+//                          deliberately the strictly better choice once above
+//                          normal speed.
 //
 // ───────────────────────────────────────────────────────────────────────────
 // MULTIPLAYER SYNC NOTES
@@ -144,10 +164,22 @@ namespace OffAngle.Movement
         Airborne,
         Crouching,
 
-        // ── Phase 2: enum slots reserved; classes not yet created ────────
+        // ── Phase 2: implemented ─────────────────────────────────────────
         Sliding,
 
+        /// <summary>
+        /// Generic host state for any IAbilityMovementDriver (dash, wall run,
+        /// grapple, blink, altered gravity, Affinity-specific movement, ...).
+        /// The state itself has no gameplay logic - see IAbilityMovementDriver.cs
+        /// and MovementStateMachine.BeginAbilityMovement().
+        /// </summary>
+        AbilityMovement,
+
         // ── Phase 3: enum slots reserved ─────────────────────────────────
+        // These will likely be implemented as IAbilityMovementDriver classes
+        // driven through AbilityMovement rather than as dedicated
+        // MovementStateId entries - kept here as placeholders until that
+        // decision is made concrete.
         WallRunning,
         Grappling,
         Zipline,

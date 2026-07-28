@@ -12,18 +12,33 @@
 //   Controller.isGrounded → GroundedState  (clears Y before exit; only when
 //                                            the capsule is already fully
 //                                            standing and the key isn't held)
-//   Controller.isGrounded → CrouchingState (capsule still shrunk and/or key
-//                                            still held - e.g. a crouch-jump.
-//                                            CrouchAmount/height are never
-//                                            touched while airborne, so this
-//                                            redirect is what lets the capsule
-//                                            grow back smoothly and safely
-//                                            instead of snapping - see Tick())
+//   Controller.isGrounded → CrouchingState (capsule STILL SHRUNK from before
+//                                            this jump - i.e. a true
+//                                            crouch-jump. CrouchAmount/height
+//                                            are never touched while airborne,
+//                                            so this redirect is what lets the
+//                                            capsule grow back smoothly and
+//                                            safely instead of snapping - see
+//                                            Tick())
+//   Controller.isGrounded → SlidingState   (capsule NOT shrunk, but CrouchSlide
+//                                            is held - e.g. jump → hold slide →
+//                                            land - AND horizontal speed clears
+//                                            SlideEntrySpeedThreshold. Resolved
+//                                            by the same SlideEntry helper
+//                                            GroundedState uses, so a fast
+//                                            jump-into-slide chain does not get
+//                                            silently downgraded into a slow
+//                                            Crouch - see Tick()/SlideEntry.cs)
 //
-// DOUBLE JUMP (Phase 2 unlock):
-//   The slot is wired now. Set MovementSettings.MaxJumps = 2 to enable.
-//   Double jump overrides ONLY ctx.Velocity.y — horizontal is preserved so
-//   the player can redirect mid-air. This is a deliberate design choice.
+// DOUBLE JUMP (Phase 2: implemented):
+//   Set MovementSettings.MaxJumps >= 2 for a base double/triple/etc. jump, or
+//   grant it at runtime via MovementStateMachine.AddMaxJumpsBonus() (see
+//   MovementStateContext.EffectiveMaxJumps) - nothing here is hardcoded to
+//   any specific jump count. Double jump overrides ONLY ctx.Velocity.y —
+//   horizontal is preserved so the player can redirect mid-air. This is a
+//   deliberate design choice. The jump budget itself is reset on landing
+//   below (Tick(), step 5) rather than in GroundedState/CrouchingState.Enter() -
+//   this is the single point that covers landing into either state.
 //
 // WALL RUN (Phase 3 hook):
 //   FixedTick() is the intended location for wall-detection raycasts.
@@ -63,6 +78,12 @@ namespace OffAngle.Movement.States
 
         public void Tick(MovementStateContext ctx, float deltaTime)
         {
+            // InputLocked mutes player-driven input without disabling the
+            // whole component - discard the jump request so it can't queue
+            // up and fire the instant input unlocks (see MovementStateContext).
+            if (ctx.InputLocked)
+                ctx.JumpPending = false;
+
             // ── 1. Double jump ─────────────────────────────────────────────
             // Checked first so the impulse is applied before gravity this frame,
             // which gives the jump a crisp, immediate feel.
@@ -72,9 +93,9 @@ namespace OffAngle.Movement.States
 
                 if (ctx.RemainingJumps > 0)
                 {
-                    // PHASE 2: this branch is active when MaxJumps = 2.
-                    // Override vertical only — horizontal from grapple/slide
-                    // swings is preserved for skill-expressive direction changes.
+                    // Active whenever EffectiveMaxJumps > 1. Override vertical
+                    // only — horizontal from grapple/slide swings is preserved
+                    // for skill-expressive direction changes.
                     float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
                     ctx.Velocity.y = jumpVelocity;
                     ctx.RemainingJumps--;
@@ -84,7 +105,7 @@ namespace OffAngle.Movement.States
             }
 
             // ── 2. Gravity ─────────────────────────────────────────────────
-            ctx.Velocity.y -= ctx.Settings.Gravity * deltaTime;
+            ctx.Velocity.y -= ctx.Settings.Gravity * ctx.GravityMultiplier * deltaTime;
 
             // ── 3. Air control (horizontal) ────────────────────────────────
             ApplyAirControl(ctx, deltaTime);
@@ -99,15 +120,52 @@ namespace OffAngle.Movement.States
             {
                 ctx.Velocity.y = 0f;
 
-                // Land into Crouching (not Grounded) if the capsule is still
-                // shrunk or the key is still held. This state never touches
-                // CrouchAmount, so a crouch-jump keeps the capsule crouched
-                // for the whole arc - only CrouchingState knows how to grow
-                // it back safely (headroom-gated, smoothly lerped).
-                if (ctx.CrouchAmount > 0f || ctx.IsCrouchSlideHeld)
+                // Centralized jump-budget reset: this is the single point
+                // where the player transitions from Airborne into ANY
+                // grounded-family state (Grounded, Crouching, or Sliding
+                // below), so resetting here - rather than only in
+                // GroundedState.Enter() - guarantees every landing refills
+                // the jump budget, including a landing that redirects
+                // straight into Crouching (a crouch-jump), which
+                // GroundedState.Enter() never sees.
+                ctx.RemainingJumps = ctx.EffectiveMaxJumps;
+
+                // A press queued the instant before landing (or stale from a
+                // tap-then-release while still airborne) must not leak into
+                // GroundedState's Tick() and fire a second, unwanted
+                // crouch/slide next frame - same hygiene as
+                // CrouchingState/SlidingState.Enter().
+                ctx.CrouchSlidePending = false;
+
+                if (ctx.CrouchAmount > 0f)
+                {
+                    // Capsule is still shrunk from BEFORE this jump (a true
+                    // crouch-jump) - always return to Crouching regardless of
+                    // speed. Sliding would need the capsule at full height,
+                    // and this state never touches CrouchAmount mid-air.
                     ctx.StateMachine.TransitionTo(MovementStateId.Crouching);
+                }
+                else if (ctx.IsCrouchSlideHeld)
+                {
+                    // Held CrouchSlide while airborne (e.g. jump → hold slide
+                    // → land) must resolve exactly like a fresh ground press:
+                    // fast enough → Sliding, otherwise → Crouching. Without
+                    // routing this through SlideEntry, landing while holding
+                    // the key ALWAYS forced Crouching regardless of speed -
+                    // a jump-into-slide chain would silently downgrade into a
+                    // slow crouch instead of the fast slide the player expects.
+                    // Same NextCrouchAllowedTime spam gate as GroundedState's
+                    // fresh-press path - a refusal here just lands Grounded.
+                    bool entered = Time.time >= ctx.NextCrouchAllowedTime
+                        && SlideEntry.TryEnterSlideOrCrouch(ctx);
+
+                    if (!entered)
+                        ctx.StateMachine.TransitionTo(MovementStateId.Grounded);
+                }
                 else
+                {
                     ctx.StateMachine.TransitionTo(MovementStateId.Grounded);
+                }
             }
         }
 
@@ -133,13 +191,13 @@ namespace OffAngle.Movement.States
 
         private void ApplyAirControl(MovementStateContext ctx, float deltaTime)
         {
-            Vector2 rawInput = ctx.Input.MoveInput;
+            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
             if (rawInput.sqrMagnitude < 0.001f)
                 return;
 
-            float speed = ctx.Input.IsSprinting
+            float speed = (ctx.Input.IsSprinting
                 ? ctx.Settings.SprintSpeed
-                : ctx.Settings.WalkSpeed;
+                : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
 
             Vector3 wishDir = ctx.PlayerTransform.right   * rawInput.x
                             + ctx.PlayerTransform.forward * rawInput.y;

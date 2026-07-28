@@ -74,6 +74,12 @@ namespace OffAngle.Movement.States
 
         public void Tick(MovementStateContext ctx, float deltaTime)
         {
+            // InputLocked mutes player-driven input without disabling the
+            // whole component - discard the jump request so it can't queue
+            // up and fire the instant input unlocks (see MovementStateContext).
+            if (ctx.InputLocked)
+                ctx.JumpPending = false;
+
             // ── 1. Ledge-fall detection (same contract as GroundedState) ────
             if (!ctx.Controller.isGrounded)
             {
@@ -110,12 +116,17 @@ namespace OffAngle.Movement.States
             // Sprint input is intentionally ignored while crouched - a single
             // enforcement point instead of a scattered "if crouching" check
             // elsewhere in the sprint-speed logic.
-            Vector2 rawInput = ctx.Input.MoveInput;
+            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
             Vector3 wishDir  = ctx.PlayerTransform.right   * rawInput.x
                              + ctx.PlayerTransform.forward * rawInput.y;
 
             float inputMag = Mathf.Clamp01(rawInput.magnitude);
-            Vector3 horizontalVelocity = wishDir.normalized * (ctx.Settings.CrouchSpeed * inputMag);
+
+            // Same bunny-hop momentum preservation as GroundedState - a fast
+            // crouch-jump landing (or crouching mid-slide-chain) should not
+            // instantly slam down to CrouchSpeed. See GroundMomentum.cs.
+            Vector3 horizontalVelocity = GroundMomentum.ComputeHorizontalVelocity(
+                ctx, wishDir, inputMag, ctx.Settings.CrouchSpeed * ctx.SpeedMultiplier, deltaTime);
 
             // Same ground-press constant as GroundedState - required to keep
             // CharacterController.isGrounded stable on flat surfaces.
