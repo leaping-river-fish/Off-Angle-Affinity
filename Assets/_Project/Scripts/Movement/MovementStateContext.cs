@@ -21,7 +21,9 @@
 //   WallRun→ Jump   : perpendicular wall kick + preserve wall-parallel speed
 //   Grapple→ Release: ctx.Velocity = swing direction × exit speed at moment
 //   Zipline→ Jump   : ctx.Velocity = zipline tangent × zipline speed at jump
-//   DoubleJump      : overrides ctx.Velocity.y only; horizontal unchanged
+//   DoubleJump      : always overrides ctx.Velocity.y; horizontal preserved
+//                     only if held direction ~matches current travel, else
+//                     redirected + reduced (see AirborneState.ApplyDoubleJumpRedirect)
 // =============================================================================
 
 using UnityEngine;
@@ -210,6 +212,14 @@ namespace OffAngle.Movement
         [Tooltip("Base number of jumps before the player must land again. 1 = single jump, 2 = double jump, etc. Not hardcoded to any specific count - runtime bonuses stack on top via MovementStateMachine.AddMaxJumpsBonus (see MovementStateContext.EffectiveMaxJumps), so Affinities/perks/buffs can grant extra jumps without touching this value.")]
         public int   MaxJumps    = 1;
 
+        [Header("Double Jump Redirect")]
+        [Range(-1f, 1f)]
+        [Tooltip("Dot product between current horizontal travel direction and the held input direction at the moment of a double jump. At or above this value the held direction is \"close enough\" and full horizontal momentum is preserved (old behavior). Below it, the jump is treated as a direction change - see DoubleJumpReversalRetention. 1 = only a perfectly straight double jump keeps full speed; -1 = redirect never reduces momentum.")]
+        public float DoubleJumpRedirectDotThreshold = 0.6f;
+        [Range(0f, 1f)]
+        [Tooltip("Fraction of current horizontal speed kept when a double jump redirect is a full 180° reversal (dot = -1). Redirects between the threshold above and a full reversal scale linearly between 1.0 and this value, and velocity direction snaps to the newly held direction rather than just slowing down along the old path. 1 = redirecting never costs speed.")]
+        public float DoubleJumpReversalRetention = 0.35f;
+
         [Header("Air Movement")]
         [Range(0f, 1f)]
         [Tooltip("Scales how strongly player input steers while airborne.")]
@@ -257,5 +267,20 @@ namespace OffAngle.Movement
         public float WallRunGravityScale = 0.2f;      // PHASE 3
         public float WallRunMinSpeed     = 3f;         // PHASE 3: exit if speed drops below this
         public float WallRunDuration     = 2f;         // PHASE 3: max seconds per wall surface
+
+        [Header("Grapple")]
+        [Tooltip("Acceleration (m/s²) applied toward the grapple anchor point every Tick while being pulled.")]
+        public float GrapplePullAcceleration = 45f;
+        [Tooltip("Hard speed ceiling while being pulled, in m/s. Prevents runaway acceleration on very short grapples.")]
+        public float GrappleMaxPullSpeed = 28f;
+        [Tooltip("Distance (m) from the anchor at which an active pull auto-completes (treated as \"arrived\"). Also acts as a buffer so the player doesn't collide with the surface they just grappled.")]
+        public float GrappleReleaseDistance = 2f;
+        [Tooltip("Safety timeout (seconds) - an active pull auto-completes if it hasn't arrived or been cancelled by then (e.g. an anchor that's unreachable because of intervening geometry).")]
+        public float GrappleMaxDuration = 3f;
+        [Range(0f, 1f)]
+        [Tooltip("Fraction of normal gravity applied while being pulled (0 = fully suppressed like a zipline, 1 = full gravity arcs the pull like a real cable).")]
+        public float GrappleGravityScale = 0.15f;
+        [Tooltip("If true, a raycast from the player toward the anchor that hits something else first auto-completes the pull early, preventing the player from grinding into a wall corner instead of swinging around it.")]
+        public bool GrappleAutoReleaseOnObstruction = true;
     }
 }

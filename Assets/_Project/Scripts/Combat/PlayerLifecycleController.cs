@@ -50,6 +50,10 @@ namespace OffAngle.Combat
         [SerializeField] private MovementStateMachine _stateMachine;
         [SerializeField] private CharacterController _characterController;
         [SerializeField] private PlayerWeaponController _weaponController;
+        [Tooltip("Optional. When assigned, the equipped weapon model is hidden on death and re-shown on respawn - otherwise it stays floating in place at the camera pivot since it isn't part of the ragdolling body.")]
+        [SerializeField] private PlayerWeaponEquipper _weaponEquipper;
+        [Tooltip("Optional. When assigned, an in-flight hook or an active pull is force-ended immediately on death instead of lingering until ResetTransientInput() runs at respawn.")]
+        [SerializeField] private PlayerGrapple _playerGrapple;
 
         [Header("Corpse / visibility (all peers)")]
         [SerializeField] private PlayerRagdoll _ragdoll;
@@ -236,6 +240,15 @@ namespace OffAngle.Combat
             if (_stateMachine != null) _stateMachine.enabled = !locked;
             if (_characterController != null) _characterController.enabled = !locked;
             _weaponController?.SetFireLocked(locked);
+            _weaponEquipper?.SetEquippedVisible(!locked);
+
+            // Death only - a respawn's ResetTransientInput() (see
+            // RpcOnRespawned) already handles the case where the ability
+            // driver was left frozen mid-pull by _stateMachine.enabled=false
+            // above, but that doesn't run until respawn. Cancelling here too
+            // means a mid-flight hook or an active pull is despawned the
+            // instant the player dies, not several seconds later.
+            if (locked) _playerGrapple?.CancelGrapple();
         }
 
         // ------------------------------------------------------------------

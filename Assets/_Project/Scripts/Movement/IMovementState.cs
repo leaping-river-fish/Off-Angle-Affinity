@@ -48,21 +48,31 @@
 //     Player presses Jump while wall running (without a wall kick).
 //     Consumes one RemainingJumps charge. Fires upward + away from wall.
 //
-//   Grapple swing → Release → WallRun
-//     ctx.Velocity at release = swing direction × exit speed.
-//     AirborneState detects wall contact and enters WallRunningState.
+//   Grapple pull → Release → WallRun
+//     ctx.Velocity at the moment of release (natural arrival OR an early
+//     slingshot cancel via MovementStateMachine.InterruptCurrentAction) is
+//     whatever GrapplePullDriver had accelerated it to - see
+//     GrapplePullDriver.cs's MOMENTUM CONTRACT. AirborneState detects wall
+//     contact and enters WallRunningState from there, same as any other
+//     airborne momentum.
 //
-//   Grapple swing → Release → DoubleJump
-//     Released at swing apex; double jump fires to extend reach further.
-//     Horizontal velocity from swing is preserved.
+//   Grapple pull → Release → DoubleJump
+//     Released early (slingshot cancel) or on arrival; double jump fires to
+//     extend reach further. Horizontal velocity from the pull is preserved
+//     exactly like a slide-jump.
 //
 //   Zipline → Jump
 //     Jump exit: ctx.Velocity = zipline tangent × zipline speed + upward impulse.
 //     Do not zero XZ in ZiplineState.Exit().
 //
 //   Slide → Grapple fire
-//     Grapple cast is allowed during slide. If pull direction matches slide
-//     direction, the vectors stack (implement a speed cap to prevent exploit).
+//     Grapple cast is allowed during slide by default (gated by
+//     MovementStateMachine.CanStartMovementAction(), which reads
+//     Settings.AllowAbilitiesDuringSlide - same seam every future ability
+//     uses, see PlayerGrapple.HandleGrappleStarted). If pull direction
+//     matches slide direction, the vectors stack; GrapplePullDriver's
+//     GrappleMaxPullSpeed is the speed cap that prevents that from
+//     runaway-exploiting.
 //
 // ───────────────────────────────────────────────────────────────────────────
 // SIMULTANEOUS ABILITIES (not exclusive; handled by separate systems)
@@ -90,7 +100,14 @@
 //   AbilityMovement fully delegated to the active IAbilityMovementDriver -
 //               no built-in gravity/friction/input model of its own
 //   WallRunning WallRunGravityScale × gravity, input locked to wall axis
-//   Grappling   swing physics override, pendulum motion, minimal direct input
+//   Grappling   implemented as GrapplePullDriver (Scripts/Movement/Grapple/)
+//               driven through AbilityMovement, not a dedicated state -
+//               straight-line acceleration toward the anchor point
+//               (GrapplePullAcceleration, capped at GrappleMaxPullSpeed),
+//               partial gravity via GrappleGravityScale (0 = zipline-flat,
+//               1 = full arc), no direct player input during the pull
+//               (steering while grappling is a documented future extension,
+//               not built - see GrapplePullDriver.cs)
 //   Zipline     gravity suppressed, path-locked, no player input
 //
 //   GravityMultiplier / SpeedMultiplier / InputLocked (on MovementStateContext,
@@ -106,11 +123,22 @@
 //                          to re-enter wall run on the same surface.
 //   Slope slide exploit    Apply terminal velocity cap. Uphill decelerates;
 //                          downhill accelerates up to cap.
-//   Grapple spam           0.2s cooldown between grapple casts (GrapplingState).
+//   Grapple spam           Owner-local + server-revalidated cooldown between
+//                          casts (PlayerGrapple's _cooldown/_serverCooldownGrace,
+//                          same shape as PlayerWeaponController's fire-rate
+//                          gate) - no dedicated GrapplingState needed.
 //   Double jump cheat      ctx.RemainingJumps must be server-authoritative.
 //   Slide off ledge        Preserve horizontal velocity into Airborne. This is
 //                          intentional — not an exploit.
-//   Grapple through geo    Require line-of-sight raycast before attaching.
+//   Grapple through geo    Structurally impossible rather than a raycast
+//                          check: GrappleHook only reports a hit from its own
+//                          OnTriggerEnter, i.e. only once the hook has
+//                          physically flown to and touched the surface (see
+//                          GrappleHook.cs). GrapplePullDriver additionally
+//                          auto-releases early if a raycast toward the
+//                          anchor finds something in the way mid-pull
+//                          (GrappleAutoReleaseOnObstruction), so the player
+//                          can't grind through/into geometry either.
 //   Wall kick vs double    Wall kick is free; wall run + jump consumes a charge.
 //   Bunny hop momentum     INTENTIONAL, not an exploit: GroundedState/
 //                          CrouchingState preserve speed above the walk/
@@ -136,7 +164,17 @@
 //                      re-derives a smooth scale from that bool. Keeps
 //                      bandwidth to one RPC per crouch/stand transition
 //                      instead of streaming a float every frame.
-//   GrapplingState   — requires NetworkVariable<Vector3> for attach point.
+//   Grapple          — implemented (GrapplePullDriver, driven through
+//                      AbilityMovement - no dedicated state). The hook's
+//                      flight/collision is server-authoritative
+//                      (Scripts/Movement/Grapple/GrappleHook.cs, spawned by
+//                      OffAngle.Networking.PlayerGrapple); the resolved
+//                      anchor point is delivered to the OWNER ONLY via a
+//                      TargetRpc (other peers don't run this player's
+//                      MovementStateMachine at all, see
+//                      NetworkPlayerController), and the pull itself then
+//                      follows the same client-authoritative model as every
+//                      other movement state.
 //   WallRunningState — server-side surface detection must match client.
 //   ZiplineState     — server owns zipline path position; clients interpolate.
 //   Input gate       — PlayerInputReader.enabled = IsOwner; disable for remotes.
@@ -181,6 +219,18 @@ namespace OffAngle.Movement
         // MovementStateId entries - kept here as placeholders until that
         // decision is made concrete.
         WallRunning,
+
+        /// <summary>
+        /// UNUSED placeholder - Grapple is implemented as GrapplePullDriver
+        /// (Scripts/Movement/Grapple/GrapplePullDriver.cs) driven through
+        /// AbilityMovement, exactly the pattern predicted above. During an
+        /// active grapple, MovementStateMachine.CurrentStateId reports
+        /// AbilityMovement, never this value - query
+        /// OffAngle.Networking.PlayerGrapple.IsGrappling instead if a system
+        /// specifically needs to know "is the player grappling right now".
+        /// Kept here only so a future dedicated GrapplingState remains a
+        /// non-breaking option if the pull-based design ever needs one.
+        /// </summary>
         Grappling,
         Zipline,
     }

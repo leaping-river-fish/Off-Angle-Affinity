@@ -34,11 +34,17 @@
 //   Set MovementSettings.MaxJumps >= 2 for a base double/triple/etc. jump, or
 //   grant it at runtime via MovementStateMachine.AddMaxJumpsBonus() (see
 //   MovementStateContext.EffectiveMaxJumps) - nothing here is hardcoded to
-//   any specific jump count. Double jump overrides ONLY ctx.Velocity.y —
-//   horizontal is preserved so the player can redirect mid-air. This is a
-//   deliberate design choice. The jump budget itself is reset on landing
-//   below (Tick(), step 5) rather than in GroundedState/CrouchingState.Enter() -
-//   this is the single point that covers landing into either state.
+//   any specific jump count. Double jump always overrides ctx.Velocity.y.
+//   Horizontal is preserved ONLY if the player holds roughly the same
+//   direction they were already travelling in (see ApplyDoubleJumpRedirect
+//   and MovementSettings.DoubleJumpRedirectDotThreshold) - redirecting into a
+//   sufficiently different held direction snaps velocity toward that new
+//   direction and cuts speed (scaled by how sharp the turn is, see
+//   DoubleJumpReversalRetention), so a full reversal costs much more speed
+//   than a slight sidestep. No held input at all leaves momentum untouched.
+//   The jump budget itself is reset on landing below (Tick(), step 5) rather
+//   than in GroundedState/CrouchingState.Enter() - this is the single point
+//   that covers landing into either state.
 //
 // WALL RUN (Phase 3 hook):
 //   FixedTick() is the intended location for wall-detection raycasts.
@@ -93,12 +99,16 @@ namespace OffAngle.Movement.States
 
                 if (ctx.RemainingJumps > 0)
                 {
-                    // Active whenever EffectiveMaxJumps > 1. Override vertical
-                    // only — horizontal from grapple/slide swings is preserved
-                    // for skill-expressive direction changes.
+                    // Active whenever EffectiveMaxJumps > 1. Always overrides
+                    // vertical; horizontal is only preserved as-is when the
+                    // held direction roughly matches current travel - see
+                    // ApplyDoubleJumpRedirect for the "different direction"
+                    // case.
                     float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
                     ctx.Velocity.y = jumpVelocity;
                     ctx.RemainingJumps--;
+
+                    ApplyDoubleJumpRedirect(ctx);
                 }
                 // If no jumps remain, the request is silently consumed so it
                 // does not phantom-trigger on the first frame after landing.
@@ -188,6 +198,45 @@ namespace OffAngle.Movement.States
         // ------------------------------------------------------------------
         // Private helpers
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// A double jump held toward a direction different from the player's
+        /// current horizontal travel redirects momentum into that new
+        /// direction instead of fully preserving the old one - the sharper
+        /// the turn, the more speed is cut. Skips entirely (leaves ctx.Velocity
+        /// untouched) when there is no held direction to redirect toward, or
+        /// when the held direction is already close enough to current travel
+        /// (dot >= DoubleJumpRedirectDotThreshold) - straight double jumps and
+        /// slight steering keep their full reach exactly like before.
+        /// </summary>
+        private void ApplyDoubleJumpRedirect(MovementStateContext ctx)
+        {
+            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
+            if (rawInput.sqrMagnitude < 0.001f)
+                return; // No held direction to redirect toward.
+
+            Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            float speed = horizontal.magnitude;
+            if (speed < 0.01f)
+                return; // Not moving horizontally - nothing to redirect.
+
+            Vector3 wishDir = (ctx.PlayerTransform.right * rawInput.x + ctx.PlayerTransform.forward * rawInput.y).normalized;
+            float dot = Vector3.Dot(horizontal / speed, wishDir);
+
+            if (dot >= ctx.Settings.DoubleJumpRedirectDotThreshold)
+                return; // Close enough to the current heading - full momentum preserved.
+
+            // Map how sharp the redirect is (dot from the threshold down to -1,
+            // a full reversal) onto a speed-retention fraction. Direction snaps
+            // to the new wish direction - the momentum CHANGES, it does not
+            // just decelerate along the old path.
+            float t = Mathf.InverseLerp(ctx.Settings.DoubleJumpRedirectDotThreshold, -1f, dot);
+            float retention = Mathf.Lerp(1f, ctx.Settings.DoubleJumpReversalRetention, t);
+
+            Vector3 redirected = wishDir * (speed * retention);
+            ctx.Velocity.x = redirected.x;
+            ctx.Velocity.z = redirected.z;
+        }
 
         private void ApplyAirControl(MovementStateContext ctx, float deltaTime)
         {

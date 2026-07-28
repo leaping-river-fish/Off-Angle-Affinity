@@ -10,12 +10,22 @@
 // jumps.
 //
 // MODEL:
-//   At or below the cap: fully responsive, snap-to-input - today's normal
-//   walk/sprint/crouch feel, completely unchanged.
-//   Above the cap (momentum carried in from Airborne or Sliding): steer it
-//   toward the wish direction using the same acceleration model as
-//   AirborneState's air control, WITHOUT clamping it back down, then let
-//   only the EXCESS above the cap decay via Settings.BunnyHopMomentumDecay -
+//   No held input at all: full stop, immediately, regardless of how much
+//   bonus momentum (bunny hop chain, slide-jump, grapple) is currently
+//   banked above the cap. Bonus momentum is only preserved while the player
+//   keeps actively steering it (see below) - without this, releasing input
+//   after sprinting (or after any above-cap carry) would coast/slide to a
+//   stop instead of stopping the instant input is released, since the cap
+//   itself can drop out from under the current speed (e.g. releasing Sprint
+//   mid-run instantly lowers the cap from SprintSpeed to WalkSpeed, which
+//   used to be misread as "bonus momentum" to preserve rather than "player
+//   let go, stop now").
+//   At or below the cap (and holding input): fully responsive, snap-to-input -
+//   today's normal walk/sprint/crouch feel, completely unchanged.
+//   Above the cap while holding input (momentum carried in from Airborne or
+//   Sliding): steer it toward the wish direction using the same acceleration
+//   model as AirborneState's air control, WITHOUT clamping it back down, then
+//   let only the EXCESS above the cap decay via Settings.BunnyHopMomentumDecay -
 //   never below the cap. AirborneState applies no such decay, so chaining
 //   jumps (and air-strafing, which AirborneState already rewards - see its
 //   ApplyAirControl) is always strictly better than staying grounded once
@@ -41,6 +51,14 @@ namespace OffAngle.Movement
         public static Vector3 ComputeHorizontalVelocity(
             MovementStateContext ctx, Vector3 wishDir, float inputMag, float speedCap, float deltaTime)
         {
+            // No held input: full stop. Bonus momentum above the cap is only
+            // ever preserved while the player is actively steering it - see
+            // the MODEL note above for why this must come before the cap
+            // check (releasing Sprint drops the cap out from under the
+            // current speed, which must NOT be misread as bonus momentum).
+            if (inputMag <= 0.001f)
+                return Vector3.zero;
+
             Vector3 current = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float currentSpeed = current.magnitude;
 
@@ -49,12 +67,9 @@ namespace OffAngle.Movement
             if (currentSpeed <= speedCap + 0.01f)
                 return wishDir.normalized * (speedCap * inputMag);
 
-            if (inputMag > 0.001f)
-            {
-                float accel = ctx.Settings.AirAcceleration * ctx.Settings.AirControlMultiplier;
-                current.x += wishDir.normalized.x * accel * deltaTime;
-                current.z += wishDir.normalized.z * accel * deltaTime;
-            }
+            float accel = ctx.Settings.AirAcceleration * ctx.Settings.AirControlMultiplier;
+            current.x += wishDir.normalized.x * accel * deltaTime;
+            current.z += wishDir.normalized.z * accel * deltaTime;
 
             float steeredSpeed = current.magnitude;
             Vector3 direction = steeredSpeed > 0.0001f ? current / steeredSpeed : wishDir.normalized;

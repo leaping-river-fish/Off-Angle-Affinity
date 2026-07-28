@@ -1023,6 +1023,7 @@ GameObject:
   - component: {fileID: 290184178402110110}
   - component: {fileID: 5070002553288718883}
   - component: {fileID: 5993733029980762}
+  - component: {fileID: 6925458499548895038}
   - component: {fileID: 7857586929583657532}
   - component: {fileID: 8432026098743611657}
   - component: {fileID: 2502087121466973166}
@@ -1125,7 +1126,6 @@ MonoBehaviour:
     AirControlMultiplier: 0.35
     AirAcceleration: 15
     SlideEntrySpeedThreshold: 4
-    SlideDeceleration: 5
     SlideDuration: 1
     SlideMaxSpeed: 12
     SlideMinSpeed: 5
@@ -1145,6 +1145,12 @@ MonoBehaviour:
     WallRunGravityScale: 0.2
     WallRunMinSpeed: 3
     WallRunDuration: 2
+    GrapplePullAcceleration: 45
+    GrappleMaxPullSpeed: 28
+    GrappleReleaseDistance: 2
+    GrappleMaxDuration: 3
+    GrappleGravityScale: 0.15
+    GrappleAutoReleaseOnObstruction: 1
 --- !u!114 &6608746267949662875
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1347,6 +1353,36 @@ MonoBehaviour:
   _serverFireRateGrace: 0.05
   _muzzleClearanceDistance: 0.6
   _tracerPrefab: {fileID: 2952079945757915, guid: c18e52cbe5e74825a3f5132645a2701e, type: 3}
+--- !u!114 &6925458499548895038
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4475511576505607171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e33514676f5cb2744a6e431fca09ac46, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.PlayerGrapple
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 6608746267949662875}
+  _networkObjectCache: {fileID: 0}
+  _inputReader: {fileID: 5347879498661852044}
+  _stateMachine: {fileID: 996271417525511594}
+  _cameraTransform: {fileID: 3639447519269023098}
+  _lifecycle: {fileID: 8432026098743611657}
+  _hookPrefab: {fileID: 4921021318492969229, guid: e05fcf306730f2447b285eb63cbb52f5, type: 3}
+  _hookSpeed: 55
+  _maxRange: 40
+  _useGravity: 0
+  _muzzleClearanceDistance: 0.6
+  _ignoreDamageableEntities: 1
+  _excludedLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  _cooldown: 1
+  _serverCooldownGrace: 0.05
 --- !u!114 &7857586929583657532
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1365,9 +1401,18 @@ MonoBehaviour:
   _weaponController: {fileID: 5993733029980762}
   _inputReader: {fileID: 5347879498661852044}
   _weaponHolder: {fileID: 5778633393900070154}
+  _thirdPersonWeaponHolder: {fileID: 791006622424047541}
+  _playerVisibility: {fileID: 2502087121466973166}
   _categoryCycleOrder:
   - {fileID: 11400000, guid: 74048c94991cac74e9ba0fb0d2cbfc96, type: 2}
   - {fileID: 11400000, guid: 3407409f15daba140a3a4d3761c8277e, type: 2}
+  _allDefinitions:
+  - {fileID: 11400000, guid: 0a9bc721df760f5458b8b6e709f64468, type: 2}
+  - {fileID: 11400000, guid: 3a32ec91aafb4d747853b10f88c74b1a, type: 2}
+  - {fileID: 11400000, guid: 58d605440adf8a845b472a7f13ab60b6, type: 2}
+  - {fileID: 11400000, guid: f396f0177fc3ba04dad95462d41c5235, type: 2}
+  - {fileID: 11400000, guid: a65039ade232bca4d87a57bc4f660a74, type: 2}
+  - {fileID: 11400000, guid: a982ccda5971efc4186110bd4ca86a9e, type: 2}
 --- !u!114 &8432026098743611657
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1389,6 +1434,8 @@ MonoBehaviour:
   _stateMachine: {fileID: 996271417525511594}
   _characterController: {fileID: 1921241789862024080}
   _weaponController: {fileID: 5993733029980762}
+  _weaponEquipper: {fileID: 7857586929583657532}
+  _playerGrapple: {fileID: 6925458499548895038}
   _ragdoll: {fileID: 7058127548947761518}
   _playerVisibility: {fileID: 2502087121466973166}
   _firstPersonCameraRoot: {fileID: 8222972675534058248}
