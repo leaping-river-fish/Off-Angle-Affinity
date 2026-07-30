@@ -1,9 +1,10 @@
 // =============================================================================
 // GrapplePullDriver — IAbilityMovementDriver that pulls the player toward a
 // fixed anchor point (the surface a GrappleHook attached to), Titanfall/Just
-// Cause style: a straight acceleration toward the anchor, not a pendulum
-// swing. Driven through MovementStateMachine.BeginAbilityMovement() /
-// MovementStateId.AbilityMovement - see IAbilityMovementDriver.cs.
+// Cause style: an instant snap to GrappleMaxPullSpeed toward the anchor, not
+// a ramped acceleration or a pendulum swing. Driven through
+// MovementStateMachine.BeginAbilityMovement() / MovementStateId.AbilityMovement
+// - see IAbilityMovementDriver.cs.
 //
 // NO FISHNET DEPENDENCY:
 // Like every other file under Scripts/Movement/, this is a plain C# class.
@@ -16,13 +17,14 @@
 // This driver never zeroes ctx.Velocity, on completion OR interruption -
 // exactly the same contract every other state in this project already
 // follows (see IMovementState.cs's MOMENTUM CHAIN REFERENCE). Whatever
-// velocity has been built up by Tick()'s acceleration is exactly what the
-// player carries into Grounded/Airborne the instant this driver ends,
-// whether that's a natural arrival, a timeout, an obstruction cutoff, or
-// PlayerGrapple.HandleGrappleCanceled() calling
-// MovementStateMachine.InterruptCurrentAction() early. That is the whole
-// "grapple and cancel but keep the momentum" slingshot mechanic - no special
-// case is needed here to make cancelling feel different from arriving.
+// velocity Tick() last set toward the anchor is exactly what the player
+// carries into Grounded/Airborne (Interrupted/TimedOut/Obstructed) or into
+// GrappleWallHoldDriver (Arrived) the instant this driver ends - see
+// GrapplePullExitReason below and PlayerGrapple.HandlePullExited for how
+// each reason is routed. Cancelling mid-pull (PlayerGrapple.HandleGrappleCanceled
+// calling MovementStateMachine.InterruptCurrentAction()) is the "grapple and
+// cancel but keep the momentum" slingshot mechanic - no special case is
+// needed here to make cancelling feel different from arriving.
 // =============================================================================
 
 using System;
@@ -31,22 +33,42 @@ using UnityEngine;
 
 namespace OffAngle.Movement.Grapple
 {
+    /// <summary>
+    /// Why a GrapplePullDriver activation ended - passed to its onExit
+    /// callback so PlayerGrapple can tell an actual wall arrival (which
+    /// should begin the wall-hold phase) apart from every other way the
+    /// pull can end (which should release immediately, exactly like before).
+    /// </summary>
+    public enum GrapplePullExitReason
+    {
+        /// <summary>Cancelled early via MovementStateMachine.InterruptCurrentAction() (the slingshot cancel) or a death/respawn reset.</summary>
+        Interrupted,
+        /// <summary>Reached within GrappleReleaseDistance of the anchor under its own power - the only reason that begins GrappleWallHoldDriver.</summary>
+        Arrived,
+        /// <summary>Hit GrappleMaxDuration before arriving (e.g. an anchor unreachable because of intervening geometry).</summary>
+        TimedOut,
+        /// <summary>GrappleAutoReleaseOnObstruction ended the pull early because something stood between the player and the anchor.</summary>
+        Obstructed,
+    }
+
     public class GrapplePullDriver : IAbilityMovementDriver
     {
         private readonly Vector3 _anchor;
-        private readonly Action<bool> _onExit;
+        private readonly Action<GrapplePullExitReason> _onExit;
 
         private float _elapsed;
         private bool _complete;
+        private GrapplePullExitReason _completionReason;
 
         /// <param name="anchorPoint">World-space point the hook attached to.</param>
         /// <param name="onExit">
-        /// Invoked exactly once from Exit(), with the same wasInterrupted value
-        /// Exit() itself received. PlayerGrapple uses this as its sole signal
-        /// to despawn the now-obsolete GrappleHook and reset its own state
-        /// back to Idle - see PlayerGrapple.HandlePullExited.
+        /// Invoked exactly once from Exit(), with the reason this activation
+        /// ended. PlayerGrapple uses this as its sole signal for what to do
+        /// next - begin the wall hold (Arrived) or despawn the now-obsolete
+        /// GrappleHook and reset its own state back to Idle (everything
+        /// else) - see PlayerGrapple.HandlePullExited.
         /// </param>
-        public GrapplePullDriver(Vector3 anchorPoint, Action<bool> onExit)
+        public GrapplePullDriver(Vector3 anchorPoint, Action<GrapplePullExitReason> onExit)
         {
             _anchor = anchorPoint;
             _onExit = onExit;
@@ -73,34 +95,39 @@ namespace OffAngle.Movement.Grapple
             // never overshoots past the anchor and out the other side.
             if (distance <= ctx.Settings.GrappleReleaseDistance)
             {
+                _completionReason = GrapplePullExitReason.Arrived;
                 _complete = true;
                 return;
             }
 
             if (_elapsed >= ctx.Settings.GrappleMaxDuration)
             {
+                _completionReason = GrapplePullExitReason.TimedOut;
                 _complete = true;
                 return;
             }
 
             if (ctx.Settings.GrappleAutoReleaseOnObstruction && IsObstructed(ctx, toAnchor, distance))
             {
+                _completionReason = GrapplePullExitReason.Obstructed;
                 _complete = true;
                 return;
             }
 
             Vector3 direction = toAnchor / Mathf.Max(distance, 0.0001f);
 
-            // Partial gravity (not full suppression) keeps a believable arc
-            // instead of a perfectly flat zipline-style tow - tune via
+            // Instant snap to GrappleMaxPullSpeed toward the anchor every
+            // Tick - no ramp-up. Partial gravity (not full suppression) is
+            // then layered on top so the tow still reads as a believable arc
+            // instead of a perfectly flat zipline - tune via
             // GrappleGravityScale (0 = zipline, 1 = full gravity).
+            ctx.Velocity = direction * ctx.Settings.GrappleMaxPullSpeed;
             ctx.Velocity.y -= ctx.Settings.Gravity * ctx.Settings.GrappleGravityScale * deltaTime;
 
-            // Accelerate toward the anchor, then clamp the RESULTING speed
-            // (not just the anchor-ward component) so gravity's contribution
-            // is included in the cap - this is what stops a long vertical
-            // pull from quietly exceeding GrappleMaxPullSpeed.
-            ctx.Velocity += direction * ctx.Settings.GrapplePullAcceleration * deltaTime;
+            // Safety clamp: gravity's contribution above can push the
+            // resulting magnitude slightly past GrappleMaxPullSpeed - this
+            // keeps that hard cap true even though the anchor-ward component
+            // is no longer ramped.
             float speed = ctx.Velocity.magnitude;
             if (speed > ctx.Settings.GrappleMaxPullSpeed)
                 ctx.Velocity = ctx.Velocity * (ctx.Settings.GrappleMaxPullSpeed / speed);
@@ -116,8 +143,11 @@ namespace OffAngle.Movement.Grapple
             // "SLINGSHOT" CONTRACT note above. Both the natural-completion
             // path (AbilityMovementState.Tick) and the interrupted path
             // (MovementStateMachine.InterruptCurrentAction) call this exactly
-            // once, satisfying the IAbilityMovementDriver contract.
-            _onExit?.Invoke(wasInterrupted);
+            // once, satisfying the IAbilityMovementDriver contract. A caller
+            // interrupting always wins over whatever _completionReason Tick()
+            // last recorded.
+            GrapplePullExitReason reason = wasInterrupted ? GrapplePullExitReason.Interrupted : _completionReason;
+            _onExit?.Invoke(reason);
         }
 
         // ------------------------------------------------------------------

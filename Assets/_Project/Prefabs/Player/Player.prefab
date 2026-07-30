@@ -1145,12 +1145,12 @@ MonoBehaviour:
     WallRunGravityScale: 0.2
     WallRunMinSpeed: 3
     WallRunDuration: 2
-    GrapplePullAcceleration: 45
     GrappleMaxPullSpeed: 28
     GrappleReleaseDistance: 2
     GrappleMaxDuration: 3
     GrappleGravityScale: 0.15
     GrappleAutoReleaseOnObstruction: 1
+    GrappleWallHoldDuration: 5
 --- !u!114 &6608746267949662875
 MonoBehaviour:
   m_ObjectHideFlags: 0

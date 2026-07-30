@@ -25,9 +25,16 @@
 //      MovementStateMachine.InterruptCurrentAction() - the "slingshot" cancel,
 //      which preserves ctx.Velocity exactly as GrapplePullDriver left it
 //      (see GrapplePullDriver.cs's MOMENTUM CONTRACT).
-//   6. Either way, GrapplePullDriver.Exit() fires the onExit callback given to
-//      it at construction (HandlePullExited below), which sends
-//      CmdReleaseGrapple() to despawn the now-obsolete hook.
+//   6. GrapplePullDriver.Exit() fires HandlePullExited below with a
+//      GrapplePullExitReason. A real arrival (Arrived) begins
+//      GrappleWallHoldDriver instead of releasing - the player freezes at
+//      the wall for GrappleWallHoldDuration seconds (Jump ends it early).
+//      Every other reason (Interrupted/TimedOut/Obstructed) sends
+//      CmdReleaseGrapple() immediately, exactly like before this phase existed.
+//   7. GrappleWallHoldDriver.Exit() fires HandleHoldExited, which sends
+//      CmdReleaseGrapple() to despawn the now-obsolete hook - whether the
+//      hold ran its full course, was cut short by Jump, or was interrupted
+//      (death/respawn).
 //
 // AUTHORITY NOTE:
 //   Movement itself stays fully client-authoritative, same model as every
@@ -50,7 +57,7 @@ namespace OffAngle.Networking
 {
     public class PlayerGrapple : NetworkBehaviour
     {
-        private enum GrappleState { Idle, HookInFlight, Pulling }
+        private enum GrappleState { Idle, HookInFlight, Pulling, Holding }
 
         [Header("References")]
         [SerializeField] private PlayerInputReader _inputReader;
@@ -91,7 +98,7 @@ namespace OffAngle.Networking
         // Server-only - the hook currently owned by this player, if any.
         private GrappleHook _activeHook;
 
-        public bool IsGrappling => _state == GrappleState.Pulling;
+        public bool IsGrappling => _state == GrappleState.Pulling || _state == GrappleState.Holding;
         public bool IsHookInFlight => _state == GrappleState.HookInFlight;
 
         // ------------------------------------------------------------------
@@ -153,19 +160,41 @@ namespace OffAngle.Networking
                     // ctx.Velocity - momentum is kept.
                     _stateMachine?.InterruptCurrentAction();
                     break;
+
+                // GrappleState.Holding is intentionally NOT handled here -
+                // releasing/re-pressing the Grapple input does nothing while
+                // held to the wall. The only way out early is Jump (read
+                // directly by GrappleWallHoldDriver.Tick()); otherwise the
+                // hold simply runs its course. See CancelGrapple() below for
+                // the one path (death) that DOES force-end a Holding grapple.
             }
         }
 
         /// <summary>
         /// Owner-only. Force-ends whatever grapple activity is in progress -
-        /// called by PlayerLifecycleController on death so a mid-flight hook
-        /// or an active pull never survives past the moment the player dies.
-        /// No-op if nothing is in progress.
+        /// called by PlayerLifecycleController on death so a mid-flight hook,
+        /// an active pull, or an active wall hold never survives past the
+        /// moment the player dies. No-op if nothing is in progress. Unlike
+        /// HandleGrappleCanceled() (wired to the player releasing the
+        /// Grapple button), this DOES end a Holding grapple early - death
+        /// isn't a normal cancel input, it must always win.
         /// </summary>
         public void CancelGrapple()
         {
             if (!base.IsOwner) return;
-            HandleGrappleCanceled();
+
+            switch (_state)
+            {
+                case GrappleState.HookInFlight:
+                    _state = GrappleState.Idle;
+                    CmdCancelInFlightHook();
+                    break;
+
+                case GrappleState.Pulling:
+                case GrappleState.Holding:
+                    _stateMachine?.InterruptCurrentAction();
+                    break;
+            }
         }
 
         private void GetAimRay(out Vector3 origin, out Vector3 direction)
@@ -204,12 +233,33 @@ namespace OffAngle.Networking
         }
 
         /// <summary>
-        /// GrapplePullDriver's onExit callback - fires exactly once, whether
-        /// the pull completed naturally (arrival/timeout/obstruction) or was
-        /// interrupted early by HandleGrappleCanceled(). Either way the hook
-        /// itself is now obsolete and must be despawned.
+        /// GrapplePullDriver's onExit callback - fires exactly once per pull
+        /// activation. A real arrival (Arrived) begins the wall hold instead
+        /// of releasing - the hook stays attached/spawned as its visual
+        /// anchor for the duration. Every other reason
+        /// (Interrupted/TimedOut/Obstructed) releases immediately, exactly
+        /// as this method always has.
         /// </summary>
-        private void HandlePullExited(bool wasInterrupted)
+        private void HandlePullExited(GrapplePullExitReason reason)
+        {
+            if (reason == GrapplePullExitReason.Arrived)
+            {
+                _state = GrappleState.Holding;
+                _stateMachine.BeginAbilityMovement(new GrappleWallHoldDriver(HandleHoldExited));
+                return;
+            }
+
+            _state = GrappleState.Idle;
+            CmdReleaseGrapple();
+        }
+
+        /// <summary>
+        /// GrappleWallHoldDriver's onExit callback - fires exactly once,
+        /// whether the hold ran its full GrappleWallHoldDuration, was cut
+        /// short by a Jump press, or was interrupted (death/respawn). Either
+        /// way the hook itself is now obsolete and must be despawned.
+        /// </summary>
+        private void HandleHoldExited()
         {
             _state = GrappleState.Idle;
             CmdReleaseGrapple();

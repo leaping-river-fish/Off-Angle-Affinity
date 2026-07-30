@@ -269,11 +269,9 @@ namespace OffAngle.Movement
         public float WallRunDuration     = 2f;         // PHASE 3: max seconds per wall surface
 
         [Header("Grapple")]
-        [Tooltip("Acceleration (m/s²) applied toward the grapple anchor point every Tick while being pulled.")]
-        public float GrapplePullAcceleration = 45f;
-        [Tooltip("Hard speed ceiling while being pulled, in m/s. Prevents runaway acceleration on very short grapples.")]
+        [Tooltip("Speed (m/s) the player is instantly set to toward the grapple anchor point every Tick while being pulled - no ramp-up, this is a hard snap-to-speed tow, not an acceleration.")]
         public float GrappleMaxPullSpeed = 28f;
-        [Tooltip("Distance (m) from the anchor at which an active pull auto-completes (treated as \"arrived\"). Also acts as a buffer so the player doesn't collide with the surface they just grappled.")]
+        [Tooltip("Distance (m) from the anchor at which an active pull auto-completes (treated as \"arrived\", beginning the wall hold). Also acts as a buffer so the player doesn't collide with the surface they just grappled.")]
         public float GrappleReleaseDistance = 2f;
         [Tooltip("Safety timeout (seconds) - an active pull auto-completes if it hasn't arrived or been cancelled by then (e.g. an anchor that's unreachable because of intervening geometry).")]
         public float GrappleMaxDuration = 3f;
@@ -282,5 +280,7 @@ namespace OffAngle.Movement
         public float GrappleGravityScale = 0.15f;
         [Tooltip("If true, a raycast from the player toward the anchor that hits something else first auto-completes the pull early, preventing the player from grinding into a wall corner instead of swinging around it.")]
         public bool GrappleAutoReleaseOnObstruction = true;
+        [Tooltip("Seconds the player is held frozen in place at the wall after a grapple pull arrives (GrapplePullExitReason.Arrived only - a cancelled, timed-out, or obstructed pull skips the hold entirely). Ends early if the player presses Jump. See GrappleWallHoldDriver.")]
+        public float GrappleWallHoldDuration = 5f;
     }
 }

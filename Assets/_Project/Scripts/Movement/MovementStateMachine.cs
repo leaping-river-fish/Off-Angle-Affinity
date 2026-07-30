@@ -255,11 +255,31 @@ namespace OffAngle.Movement
         /// Hands full locomotion control to <paramref name="driver"/> by
         /// transitioning into MovementStateId.AbilityMovement. See
         /// IAbilityMovementDriver.cs for the driver contract.
+        ///
+        /// CHAINING NOTE: a driver's Exit() can call this again from inside
+        /// its own onExit callback to hand off straight into a follow-up
+        /// driver (e.g. GrapplePullDriver's arrival chaining into
+        /// GrappleWallHoldDriver) - CurrentStateId is already AbilityMovement
+        /// at that point, so TransitionTo() below would treat it as a no-op
+        /// and silently skip Enter() (the state itself isn't changing).
+        /// Detect that case and call the new driver's Enter() directly
+        /// instead, otherwise AbilityMovementState.Tick()'s caller falls
+        /// through to Grounded/Airborne right after this returns and the new
+        /// driver is orphaned - never ticked, never exited, never releasing
+        /// whatever resource it holds (see AbilityMovementState.Tick()'s
+        /// matching post-Exit() check for the other half of this fix).
         /// </summary>
         public void BeginAbilityMovement(IAbilityMovementDriver driver)
         {
             if (_ctx == null || driver == null) return;
             _ctx.ActiveAbilityDriver = driver;
+
+            if (CurrentStateId == MovementStateId.AbilityMovement)
+            {
+                driver.Enter(_ctx);
+                return;
+            }
+
             TransitionTo(MovementStateId.AbilityMovement);
         }
 

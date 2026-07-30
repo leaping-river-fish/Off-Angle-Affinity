@@ -15,6 +15,21 @@
 //   Controller.isGrounded) once the driver reports IsComplete(), or
 //   immediately if interrupted via MovementStateMachine.InterruptCurrentAction().
 //
+// DRIVER CHAINING (a driver handing off to a follow-up driver):
+//   A driver's Exit() can call BeginAbilityMovement() again from inside its
+//   own onExit callback to hand off straight into a new driver without ever
+//   leaving AbilityMovement - e.g. GrapplePullDriver's arrival chains into
+//   GrappleWallHoldDriver (see PlayerGrapple.HandlePullExited). Tick()'s
+//   completion branch below checks ctx.ActiveAbilityDriver again right after
+//   calling Exit() specifically to support this: if it's non-null, a new
+//   driver was just chained in and already Entered (see
+//   MovementStateMachine.BeginAbilityMovement's CHAINING NOTE), so Tick()
+//   stays in AbilityMovement instead of falling through to Grounded/Airborne
+//   and orphaning it. Getting either half of this wrong silently strands the
+//   new driver forever - never ticked, IsComplete() never polled, Exit()
+//   never called, and whatever resource it holds (e.g. a still-attached
+//   GrappleHook) never released.
+//
 // DEFENSIVE FALLBACK:
 //   If ctx.ActiveAbilityDriver is ever null while this state is active (e.g.
 //   MovementStateMachine.ResetTransientInput() cleared it on a mid-ability
@@ -49,6 +64,18 @@ namespace OffAngle.Movement.States
             {
                 ctx.ActiveAbilityDriver = null;
                 driver.Exit(ctx, wasInterrupted: false);
+
+                // Exit()'s onExit callback may have chained straight into a
+                // follow-up driver via MovementStateMachine.BeginAbilityMovement()
+                // (e.g. GrapplePullDriver's arrival -> GrappleWallHoldDriver -
+                // see BeginAbilityMovement's CHAINING NOTE). If so,
+                // ctx.ActiveAbilityDriver is non-null again and already
+                // Entered - stay in AbilityMovement and tick it next frame
+                // instead of falling through to Grounded/Airborne and
+                // orphaning it (never ticked, never exited again).
+                if (ctx.ActiveAbilityDriver != null)
+                    return;
+
                 ExitToLocomotion(ctx);
             }
         }

@@ -48,18 +48,31 @@
 //     Player presses Jump while wall running (without a wall kick).
 //     Consumes one RemainingJumps charge. Fires upward + away from wall.
 //
-//   Grapple pull → Release → WallRun
-//     ctx.Velocity at the moment of release (natural arrival OR an early
-//     slingshot cancel via MovementStateMachine.InterruptCurrentAction) is
-//     whatever GrapplePullDriver had accelerated it to - see
+//   Grapple pull → Release (cancel/timeout/obstruction) → WallRun
+//     ctx.Velocity at the moment of release (an early slingshot cancel via
+//     MovementStateMachine.InterruptCurrentAction, a timeout, or an
+//     obstruction cutoff - NOT a real arrival, see GrapplePullExitReason) is
+//     whatever GrapplePullDriver last snapped it to - see
 //     GrapplePullDriver.cs's MOMENTUM CONTRACT. AirborneState detects wall
 //     contact and enters WallRunningState from there, same as any other
 //     airborne momentum.
 //
-//   Grapple pull → Release → DoubleJump
-//     Released early (slingshot cancel) or on arrival; double jump fires to
-//     extend reach further. Horizontal velocity from the pull is preserved
-//     exactly like a slide-jump.
+//   Grapple pull → Release (cancel/timeout/obstruction) → DoubleJump
+//     Released early (slingshot cancel), timed out, or obstructed; double
+//     jump fires to extend reach further. Horizontal velocity from the pull
+//     is preserved exactly like a slide-jump.
+//
+//   Grapple pull → Arrived → WallHold → Release
+//     A pull that actually reaches GrappleReleaseDistance of the anchor
+//     (GrapplePullExitReason.Arrived) does NOT release immediately - it
+//     begins GrappleWallHoldDriver, which zeroes ctx.Velocity and freezes
+//     the player in place for GrappleWallHoldDuration seconds (look/aim/fire
+//     still work; only movement is locked). Pressing Jump during the hold
+//     ends it immediately with a normal jump impulse (a wall-jump-style
+//     cancel); otherwise the hold releases into Airborne/Grounded with
+//     ctx.Velocity left at zero once the duration elapses. See
+//     GrappleWallHoldDriver.cs and PlayerGrapple.HandlePullExited/
+//     HandleHoldExited for the full Pulling → Holding → Idle chain.
 //
 //   Zipline → Jump
 //     Jump exit: ctx.Velocity = zipline tangent × zipline speed + upward impulse.
@@ -100,14 +113,19 @@
 //   AbilityMovement fully delegated to the active IAbilityMovementDriver -
 //               no built-in gravity/friction/input model of its own
 //   WallRunning WallRunGravityScale × gravity, input locked to wall axis
-//   Grappling   implemented as GrapplePullDriver (Scripts/Movement/Grapple/)
-//               driven through AbilityMovement, not a dedicated state -
-//               straight-line acceleration toward the anchor point
-//               (GrapplePullAcceleration, capped at GrappleMaxPullSpeed),
-//               partial gravity via GrappleGravityScale (0 = zipline-flat,
-//               1 = full arc), no direct player input during the pull
-//               (steering while grappling is a documented future extension,
-//               not built - see GrapplePullDriver.cs)
+//   Grappling   implemented as GrapplePullDriver + GrappleWallHoldDriver
+//               (Scripts/Movement/Grapple/) driven through AbilityMovement,
+//               not a dedicated state. The pull instantly snaps to
+//               GrappleMaxPullSpeed toward the anchor point every Tick (no
+//               ramp-up), with partial gravity via GrappleGravityScale
+//               (0 = zipline-flat, 1 = full arc); no direct player input
+//               during the pull (steering while grappling is a documented
+//               future extension, not built - see GrapplePullDriver.cs). On
+//               a real arrival, GrappleWallHoldDriver takes over: ctx.Velocity
+//               is zeroed and the player is frozen at the wall (look/aim/fire
+//               still work) for GrappleWallHoldDuration seconds, or until
+//               Jump is pressed (an immediate wall-jump-style cancel) - see
+//               GrappleWallHoldDriver.cs
 //   Zipline     gravity suppressed, path-locked, no player input
 //
 //   GravityMultiplier / SpeedMultiplier / InputLocked (on MovementStateContext,
@@ -164,17 +182,17 @@
 //                      re-derives a smooth scale from that bool. Keeps
 //                      bandwidth to one RPC per crouch/stand transition
 //                      instead of streaming a float every frame.
-//   Grapple          — implemented (GrapplePullDriver, driven through
-//                      AbilityMovement - no dedicated state). The hook's
-//                      flight/collision is server-authoritative
+//   Grapple          — implemented (GrapplePullDriver + GrappleWallHoldDriver,
+//                      driven through AbilityMovement - no dedicated state).
+//                      The hook's flight/collision is server-authoritative
 //                      (Scripts/Movement/Grapple/GrappleHook.cs, spawned by
 //                      OffAngle.Networking.PlayerGrapple); the resolved
 //                      anchor point is delivered to the OWNER ONLY via a
 //                      TargetRpc (other peers don't run this player's
 //                      MovementStateMachine at all, see
-//                      NetworkPlayerController), and the pull itself then
-//                      follows the same client-authoritative model as every
-//                      other movement state.
+//                      NetworkPlayerController), and the pull/hold themselves
+//                      then follow the same client-authoritative model as
+//                      every other movement state.
 //   WallRunningState — server-side surface detection must match client.
 //   ZiplineState     — server owns zipline path position; clients interpolate.
 //   Input gate       — PlayerInputReader.enabled = IsOwner; disable for remotes.
@@ -221,13 +239,14 @@ namespace OffAngle.Movement
         WallRunning,
 
         /// <summary>
-        /// UNUSED placeholder - Grapple is implemented as GrapplePullDriver
-        /// (Scripts/Movement/Grapple/GrapplePullDriver.cs) driven through
+        /// UNUSED placeholder - Grapple is implemented as GrapplePullDriver +
+        /// GrappleWallHoldDriver (Scripts/Movement/Grapple/) driven through
         /// AbilityMovement, exactly the pattern predicted above. During an
-        /// active grapple, MovementStateMachine.CurrentStateId reports
-        /// AbilityMovement, never this value - query
-        /// OffAngle.Networking.PlayerGrapple.IsGrappling instead if a system
-        /// specifically needs to know "is the player grappling right now".
+        /// active grapple (pulling OR held at the wall),
+        /// MovementStateMachine.CurrentStateId reports AbilityMovement, never
+        /// this value - query OffAngle.Networking.PlayerGrapple.IsGrappling
+        /// instead if a system specifically needs to know "is the player
+        /// grappling right now" (true for both the pull and the wall hold).
         /// Kept here only so a future dedicated GrapplingState remains a
         /// non-breaking option if the pull-based design ever needs one.
         /// </summary>

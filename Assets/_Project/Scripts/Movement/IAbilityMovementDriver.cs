@@ -27,6 +27,17 @@
 //     directly if the driver cares.
 //   - Exit() is called exactly once per activation - either path (natural
 //     completion or interruption), never both.
+//   - CHAINING: a driver's Exit()/onExit callback may call
+//     MovementStateMachine.BeginAbilityMovement(nextDriver) to hand off
+//     straight into a follow-up driver without ever leaving AbilityMovement
+//     (e.g. GrapplePullDriver's arrival chaining into GrappleWallHoldDriver -
+//     see PlayerGrapple.HandlePullExited). BeginAbilityMovement() detects
+//     this re-entrant case and calls nextDriver.Enter() directly, and
+//     AbilityMovementState.Tick() checks for it right after calling Exit()
+//     so it stays in AbilityMovement instead of falling through to
+//     Grounded/Airborne - see both call sites' comments for the full
+//     mechanics. A driver that does NOT chain needs no awareness of this at
+//     all; it only matters to drivers that do.
 // =============================================================================
 
 namespace OffAngle.Movement
