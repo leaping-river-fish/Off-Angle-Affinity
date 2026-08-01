@@ -33,9 +33,11 @@
 //   walls, pillars) needs ZERO per-object setup to become "grappleable".
 //
 // LIFECYCLE:
-//   ServerInitialize() is called once by PlayerGrapple immediately after
-//   ServerManager.Spawn. Unlike Projectile.cs (which despawns itself the
-//   instant it resolves), a hook that ATTACHES stays alive and embedded -
+//   ServerSetOwner() is called once by PlayerGrapple BEFORE ServerManager.Spawn
+//   (see that method's doc comment for why the ordering matters), then
+//   ServerInitialize() is called once immediately after. Unlike Projectile.cs
+//   (which despawns itself the instant it resolves), a hook that ATTACHES
+//   stays alive and embedded -
 //   it's the visual anchor/rope endpoint for as long as the player is being
 //   pulled. PlayerGrapple calls ServerRelease() once the pull ends (arrival,
 //   cancel, or death) to despawn it. A hook that MISSES (excluded surface,
@@ -85,15 +87,35 @@ namespace OffAngle.Movement.Grapple
         public override void OnStartClient()
         {
             base.OnStartClient();
-            GrappleEvents.RaiseHookFired(_ownerSync.Value, transform.position, transform.forward);
+            GrappleEvents.RaiseHookFired(_ownerSync.Value, transform, transform.position, transform.forward);
+        }
+
+        /// <summary>
+        /// Server-only. MUST be called BEFORE ServerManager.Spawn() - a
+        /// SyncVar's initial replicated value is whatever it holds at the
+        /// moment Spawn() runs; anything set afterward only reaches
+        /// observers as a later "changed" message, which arrives too late
+        /// for OnStartClient() (already fired at spawn time) to see. Since
+        /// OnStartClient() is exactly where this hook raises
+        /// GrappleEvents.HookFired with _ownerSync.Value (see below), owner
+        /// used to always read back as null there - GrappleRopeRenderer's
+        /// owner-comparison filter could then never match ANY player,
+        /// making the rope invisible for literally everyone, always,
+        /// regardless of who fired it or who's watching. Calling this
+        /// before Spawn() fixes that by baking the correct owner into the
+        /// hook's initial spawn payload.
+        /// </summary>
+        public void ServerSetOwner(NetworkObject owner)
+        {
+            _ownerSync.Value = owner;
         }
 
         /// <summary>
         /// Server-only. Called once by PlayerGrapple immediately after this
-        /// instance is spawned.
+        /// instance is spawned (see ServerSetOwner above for what must
+        /// happen BEFORE spawn instead).
         /// </summary>
         public void ServerInitialize(
-            NetworkObject owner,
             Transform attackerRoot,
             Vector3 velocity,
             bool useGravity,
@@ -104,7 +126,6 @@ namespace OffAngle.Movement.Grapple
         {
             if (!IsServerInitialized) return;
 
-            _ownerSync.Value = owner;
             _attackerRoot = attackerRoot;
             _ignoreDamageableEntities = ignoreDamageableEntities;
             _excludedLayers = excludedLayers | _defaultExcludedLayers;

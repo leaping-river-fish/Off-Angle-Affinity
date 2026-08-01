@@ -116,15 +116,12 @@ namespace OffAngle.Movement.States
             // Sprint input is intentionally ignored while crouched - a single
             // enforcement point instead of a scattered "if crouching" check
             // elsewhere in the sprint-speed logic.
-            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
-            Vector3 wishDir  = ctx.PlayerTransform.right   * rawInput.x
-                             + ctx.PlayerTransform.forward * rawInput.y;
+            Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
 
-            float inputMag = Mathf.Clamp01(rawInput.magnitude);
-
-            // Same bunny-hop momentum preservation as GroundedState - a fast
-            // crouch-jump landing (or crouching mid-slide-chain) should not
-            // instantly slam down to CrouchSpeed. See GroundMomentum.cs.
+            // Same momentum preservation as GroundedState - a fast
+            // crouch-jump landing (or crouching mid-slide-chain) above
+            // MovementSettings.NormalMaxSpeed should not instantly slam down
+            // to CrouchSpeed. See GroundMomentum.cs.
             Vector3 horizontalVelocity = GroundMomentum.ComputeHorizontalVelocity(
                 ctx, wishDir, inputMag, ctx.Settings.CrouchSpeed * ctx.SpeedMultiplier, deltaTime);
 
@@ -162,11 +159,9 @@ namespace OffAngle.Movement.States
 
         private void PerformJump(MovementStateContext ctx)
         {
-            // Identical formula to GroundedState.PerformJump - horizontal
+            // Same JumpVelocity as GroundedState.PerformJump - horizontal
             // crouch-walk speed carries into the jump arc unchanged.
-            float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
-
-            ctx.Velocity.y = jumpVelocity;
+            ctx.Velocity.y = ctx.Settings.JumpVelocity;
             ctx.RemainingJumps--;
 
             ctx.StateMachine.TransitionTo(MovementStateId.Airborne);

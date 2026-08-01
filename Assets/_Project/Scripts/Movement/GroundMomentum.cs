@@ -1,36 +1,38 @@
 // =============================================================================
-// GroundMomentum — shared bunny-hop-friendly ground speed blending.
-//
-// Extracted so every state that computes an input-capped ground speed
-// (GroundedState, CrouchingState) preserves momentum above that cap
-// identically - mirroring why MovementCapsuleUtility exists for capsule math.
-// Without this, landing at high speed (built up via a jump chain or a
-// slide-jump) would instantly clamp back down to walk/sprint/crouch speed
-// the moment either state's Tick() ran, killing the reward for chaining
-// jumps.
+// GroundMomentum — shared momentum preservation math for every state that
+// computes an input-driven horizontal speed (GroundedState, CrouchingState,
+// AirborneState). Extracted so all three preserve, steer, and decay speed
+// above normal movement speed identically - mirroring why
+// MovementCapsuleUtility exists for capsule math.
 //
 // MODEL:
-//   No held input at all: full stop, immediately, regardless of how much
-//   bonus momentum (bunny hop chain, slide-jump, grapple) is currently
-//   banked above the cap. Bonus momentum is only preserved while the player
-//   keeps actively steering it (see below) - without this, releasing input
-//   after sprinting (or after any above-cap carry) would coast/slide to a
-//   stop instead of stopping the instant input is released, since the cap
-//   itself can drop out from under the current speed (e.g. releasing Sprint
-//   mid-run instantly lowers the cap from SprintSpeed to WalkSpeed, which
-//   used to be misread as "bonus momentum" to preserve rather than "player
-//   let go, stop now").
-//   At or below the cap (and holding input): fully responsive, snap-to-input -
-//   today's normal walk/sprint/crouch feel, completely unchanged.
-//   Above the cap while holding input (momentum carried in from Airborne or
-//   Sliding): steer it toward the wish direction using the same acceleration
-//   model as AirborneState's air control, WITHOUT clamping it back down, then
-//   let only the EXCESS above the cap decay via Settings.BunnyHopMomentumDecay -
-//   never below the cap. AirborneState applies no such decay, so chaining
-//   jumps (and air-strafing, which AirborneState already rewards - see its
-//   ApplyAirControl) is always strictly better than staying grounded once
-//   above normal speed. That asymmetry is what makes bunny hopping "ideal
-//   after a lot of momentum" instead of just tolerated.
+//   There is a single global gate - MovementSettings.NormalMaxSpeed (see
+//   MovementStateContext.cs), scaled by ctx.SpeedMultiplier - not a
+//   per-context cap. Below or at that gate, movement is fully responsive and
+//   completely unchanged from "classic" behavior: releasing input stops
+//   instantly, holding input directly sets speed to the context's own cap
+//   (walk/sprint/crouch × inputMag). This is what keeps normal walking and
+//   sprinting feeling exactly as snappy as before.
+//
+//   Above the gate, the player is carrying MOMENTUM (grapple release,
+//   slide-jump, bunny-hop chain, external impulse, ...) and a different rule
+//   applies everywhere that calls into this class:
+//     - Input never replaces velocity - it only ACCELERATES the velocity
+//       vector toward the wish direction (steering), so a direction change
+//       has to fight the existing momentum instead of cancelling it in one
+//       frame, and releasing input does not remove momentum at all.
+//     - Speed decays smoothly toward NormalMaxSpeed (never below it, never
+//       snapped) at a rate the caller supplies - GroundedState/
+//       CrouchingState use Settings.GroundMomentumDecay (strong, so a fast
+//       landing/slide doesn't slide across the ground for too long);
+//       AirborneState uses Settings.AirMomentumDecay (weak, so a grapple
+//       release or slide-jump stays committed to its trajectory far longer
+//       than the same speed would last on the ground).
+//     - Settings.MaxPreservedSpeed is a hard safety ceiling applied after
+//       decay, bounding worst-case stacked momentum regardless of source.
+//   Once decay brings speed back down to NormalMaxSpeed, the very next Tick
+//   falls through to the normal responsive branch above - control is handed
+//   back cleanly, with no separate "recovering" state needed.
 // =============================================================================
 
 using UnityEngine;
@@ -40,42 +42,127 @@ namespace OffAngle.Movement
     public static class GroundMomentum
     {
         /// <summary>
-        /// Computes the horizontal (XZ) velocity a grounded/crouched state
-        /// should move with this Tick, preserving any speed above
-        /// <paramref name="speedCap"/> instead of clamping it away.
+        /// The single global speed (m/s) above which ANY state in this file
+        /// treats the player as carrying preserved momentum rather than just
+        /// walking/sprinting - see MovementSettings.NormalMaxSpeed. Scaled by
+        /// ctx.SpeedMultiplier so temporary speed buffs/debuffs shift the
+        /// momentum gate exactly like they shift normal movement speed.
         /// </summary>
-        /// <param name="ctx">Movement context (read for current Velocity and BunnyHopMomentumDecay).</param>
+        public static float GetMomentumThreshold(MovementStateContext ctx) =>
+            ctx.Settings.NormalMaxSpeed * ctx.SpeedMultiplier;
+
+        /// <summary>
+        /// Computes the horizontal (XZ) velocity a grounded/crouched state
+        /// should move with this Tick. At or below the momentum threshold,
+        /// behavior is the classic direct-set walk/sprint/crouch model
+        /// (unchanged). Above it, hands off to the shared momentum decay/
+        /// steer model using Settings.GroundMomentumDecay/
+        /// GroundMomentumSteerAcceleration - see this file's MODEL note.
+        /// </summary>
+        /// <param name="ctx">Movement context (read for current Velocity and momentum tunables).</param>
         /// <param name="wishDir">Unnormalized wish direction from player input (right * x + forward * y).</param>
         /// <param name="inputMag">Clamped [0,1] input magnitude.</param>
-        /// <param name="speedCap">The state's normal speed cap (WalkSpeed/SprintSpeed or CrouchSpeed, already including SpeedMultiplier).</param>
+        /// <param name="speedCap">The state's normal speed cap (WalkSpeed/SprintSpeed or CrouchSpeed, already including SpeedMultiplier) - only used for the at-or-below-threshold responsive branch.</param>
         public static Vector3 ComputeHorizontalVelocity(
             MovementStateContext ctx, Vector3 wishDir, float inputMag, float speedCap, float deltaTime)
         {
-            // No held input: full stop. Bonus momentum above the cap is only
-            // ever preserved while the player is actively steering it - see
-            // the MODEL note above for why this must come before the cap
-            // check (releasing Sprint drops the cap out from under the
-            // current speed, which must NOT be misread as bonus momentum).
-            if (inputMag <= 0.001f)
-                return Vector3.zero;
-
             Vector3 current = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float currentSpeed = current.magnitude;
+            float momentumThreshold = GetMomentumThreshold(ctx);
 
-            // No bonus momentum to preserve - behave exactly like today's
-            // direct-set ground movement.
-            if (currentSpeed <= speedCap + 0.01f)
+            // AT OR BELOW the momentum threshold: classic, fully responsive
+            // movement - no input means an instant stop, held input means an
+            // instant snap to the context's own cap. Completely unchanged
+            // from pre-momentum-system behavior.
+            if (currentSpeed <= momentumThreshold + ctx.Settings.MomentumTolerance)
+            {
+                if (inputMag <= 0.001f)
+                    return Vector3.zero;
+
                 return wishDir.normalized * (speedCap * inputMag);
+            }
 
-            float accel = ctx.Settings.AirAcceleration * ctx.Settings.AirControlMultiplier;
-            current.x += wishDir.normalized.x * accel * deltaTime;
-            current.z += wishDir.normalized.z * accel * deltaTime;
+            // ABOVE the momentum threshold: preserve, steer, and decay
+            // toward the threshold instead of snapping back to it.
+            return ApplyMomentumDecay(
+                current, currentSpeed, wishDir, inputMag,
+                steerAccel:   ctx.Settings.GroundMomentumSteerAcceleration,
+                decayRate:    ctx.Settings.GroundMomentumDecay,
+                floorSpeed:   momentumThreshold,
+                ceilingSpeed: ctx.Settings.MaxPreservedSpeed,
+                deltaTime:    deltaTime);
+        }
+
+        /// <summary>
+        /// Computes the momentum-preserving horizontal (XZ) velocity for
+        /// AirborneState while speed is above the momentum threshold. Uses
+        /// Settings.AirMomentumDecay/AirMomentumSteerAcceleration, which are
+        /// deliberately much weaker than their ground counterparts - see
+        /// this file's MODEL note. AirborneState is responsible for checking
+        /// the threshold itself and only calling this above it; at or below
+        /// the threshold it keeps its own classic acceleration+clamp air
+        /// control model.
+        /// </summary>
+        /// <param name="currentHorizontal">Current horizontal (XZ) velocity - ctx.Velocity with y zeroed.</param>
+        public static Vector3 ComputeAirborneMomentumVelocity(
+            MovementStateContext ctx, Vector3 currentHorizontal, Vector3 wishDir, float inputMag, float deltaTime)
+        {
+            float currentSpeed = currentHorizontal.magnitude;
+            float momentumThreshold = GetMomentumThreshold(ctx);
+
+            return ApplyMomentumDecay(
+                currentHorizontal, currentSpeed, wishDir, inputMag,
+                steerAccel:   ctx.Settings.AirMomentumSteerAcceleration,
+                decayRate:    ctx.Settings.AirMomentumDecay,
+                floorSpeed:   momentumThreshold,
+                ceilingSpeed: ctx.Settings.MaxPreservedSpeed,
+                deltaTime:    deltaTime);
+        }
+
+        /// <summary>
+        /// Shared decay/steer core for both the grounded and airborne
+        /// momentum paths above. Input accelerates the velocity vector
+        /// toward the wish direction (steering, never a direct replacement),
+        /// then the resulting speed decays toward - but never below -
+        /// <paramref name="floorSpeed"/>, and is finally clamped to
+        /// <paramref name="ceilingSpeed"/> as a safety cap.
+        /// </summary>
+        private static Vector3 ApplyMomentumDecay(
+            Vector3 current, float currentSpeed, Vector3 wishDir, float inputMag,
+            float steerAccel, float decayRate, float floorSpeed, float ceilingSpeed, float deltaTime)
+        {
+            if (inputMag > 0.001f)
+                current += wishDir.normalized * (steerAccel * inputMag * deltaTime);
 
             float steeredSpeed = current.magnitude;
-            Vector3 direction = steeredSpeed > 0.0001f ? current / steeredSpeed : wishDir.normalized;
-            float decayedSpeed = Mathf.Max(speedCap, steeredSpeed - ctx.Settings.BunnyHopMomentumDecay * deltaTime);
+            Vector3 direction = steeredSpeed > 0.0001f
+                ? current / steeredSpeed
+                : (currentSpeed > 0.0001f ? current / currentSpeed : Vector3.zero);
+
+            float decayedSpeed = Mathf.Max(floorSpeed, steeredSpeed - decayRate * deltaTime);
+            decayedSpeed = Mathf.Min(decayedSpeed, ceilingSpeed);
 
             return direction * decayedSpeed;
+        }
+
+        /// <summary>
+        /// Reads MoveInput (respecting InputLocked) and converts it into a
+        /// world-space, UNNORMALIZED wish direction plus the clamped [0,1]
+        /// input magnitude. Extracted so every state that reads player
+        /// movement input builds the wish direction identically - see the
+        /// file header for why this matters (GroundedState, CrouchingState,
+        /// AirborneState, and SlidingState all previously duplicated this
+        /// exact two-line block; future states like WallRunning/Zipline
+        /// inherit it for free instead of re-deriving it).
+        /// </summary>
+        /// <param name="inputMag">Clamped [0,1] input magnitude - equivalent to rawInput.magnitude for any non-diagonal-keyboard input.</param>
+        public static Vector3 GetWishDirection(MovementStateContext ctx, out float inputMag)
+        {
+            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
+            inputMag = Mathf.Clamp01(rawInput.magnitude);
+
+            return ctx.PlayerTransform.right   * rawInput.x
+                 + ctx.PlayerTransform.forward * rawInput.y;
         }
     }
 }

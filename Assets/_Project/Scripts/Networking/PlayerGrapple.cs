@@ -18,23 +18,40 @@
 //      that callback exactly once.
 //   4. On a hit, the server sends a TargetRpc (owner only - other peers don't
 //      run this player's MovementStateMachine, see NetworkPlayerController)
-//      with the anchor point. The owner begins the pull locally via
-//      MovementStateMachine.BeginAbilityMovement(new GrapplePullDriver(...)).
+//      with the anchor point AND surface normal. The owner classifies the
+//      anchor as "ground-ish" (see GROUND ANCHORS below) and begins the pull
+//      locally via MovementStateMachine.BeginAbilityMovement(new GrapplePullDriver(...)).
 //   5. Releasing the Grapple button mid-flight cancels the in-flight hook
 //      (no pull ever starts); releasing it mid-pull calls
 //      MovementStateMachine.InterruptCurrentAction() - the "slingshot" cancel,
 //      which preserves ctx.Velocity exactly as GrapplePullDriver left it
 //      (see GrapplePullDriver.cs's MOMENTUM CONTRACT).
 //   6. GrapplePullDriver.Exit() fires HandlePullExited below with a
-//      GrapplePullExitReason. A real arrival (Arrived) begins
-//      GrappleWallHoldDriver instead of releasing - the player freezes at
-//      the wall for GrappleWallHoldDuration seconds (Jump ends it early).
-//      Every other reason (Interrupted/TimedOut/Obstructed) sends
-//      CmdReleaseGrapple() immediately, exactly like before this phase existed.
+//      GrapplePullExitReason. A real arrival (Arrived) at a WALL/CEILING
+//      anchor begins GrappleWallHoldDriver instead of releasing - the player
+//      freezes at the wall for GrappleWallHoldDuration seconds (Jump ends it
+//      early). An arrival at a GROUND anchor skips the hold entirely (see
+//      GROUND ANCHORS below). Every other reason
+//      (Interrupted/TimedOut/Obstructed) sends CmdReleaseGrapple()
+//      immediately, exactly like before this phase existed.
 //   7. GrappleWallHoldDriver.Exit() fires HandleHoldExited, which sends
 //      CmdReleaseGrapple() to despawn the now-obsolete hook - whether the
 //      hold ran its full course, was cut short by Jump, or was interrupted
 //      (death/respawn).
+//
+// GROUND ANCHORS - "hook the ground, release, launch forward":
+//   GrapplePullDriver never touches ctx.Velocity on exit (its MOMENTUM
+//   CONTRACT), so an arriving pull already carries its full tow speed/
+//   direction into whatever happens next - the only thing that made a
+//   ground hook feel wrong was HandlePullExited unconditionally freezing
+//   EVERY arrival via GrappleWallHoldDriver. TargetRpcHookAttached now also
+//   receives the hook's surface normal and classifies the anchor as
+//   ground-ish when Vector3.Dot(normal, Vector3.up) >= _groundAnchorNormalThreshold
+//   (stored in _pendingAnchorIsGround). HandlePullExited reads that flag on
+//   Arrived: a ground anchor releases immediately, exactly like a manual
+//   slingshot cancel, so the player launches off the tow at full speed
+//   instead of freezing in mid-air above the ground. Wall/ceiling anchors
+//   are unaffected and keep the freeze-then-jump-to-cancel behavior.
 //
 // AUTHORITY NOTE:
 //   Movement itself stays fully client-authoritative, same model as every
@@ -84,6 +101,9 @@ namespace OffAngle.Networking
         [SerializeField] private bool _ignoreDamageableEntities = true;
         [Tooltip("Layers the hook can never attach to, regardless of the toggle above (e.g. water, glass, VFX-only colliders).")]
         [SerializeField] private LayerMask _excludedLayers = 0;
+        [Range(0f, 1f)]
+        [Tooltip("Vector3.Dot(hitNormal, Vector3.up) at or above this value counts an attach point as a GROUND anchor rather than a wall/ceiling anchor. A completed pull (arrival) at a ground anchor skips GrappleWallHoldDriver entirely and releases immediately with full momentum - the 'hook ground, release, launch forward' feel. 1 = only a perfectly flat floor counts as ground; 0 = any surface (including walls) counts as ground. See HandlePullExited.")]
+        [SerializeField] private float _groundAnchorNormalThreshold = 0.7f;
 
         [Header("Cooldown")]
         [Tooltip("Minimum seconds between grapple attempts.")]
@@ -94,6 +114,14 @@ namespace OffAngle.Networking
         private GrappleState _state = GrappleState.Idle;
         private float _ownerNextAllowedFireTime;
         private float _serverNextAllowedFireTime;
+
+        /// <summary>
+        /// Owner-only. Classified in TargetRpcHookAttached from the hook's
+        /// surface normal and consulted once, in HandlePullExited, when the
+        /// pull's exit reason is Arrived - see this file's GROUND ANCHORS
+        /// header note.
+        /// </summary>
+        private bool _pendingAnchorIsGround;
 
         // Server-only - the hook currently owned by this player, if any.
         private GrappleHook _activeHook;
@@ -209,7 +237,7 @@ namespace OffAngle.Networking
         // ------------------------------------------------------------------
 
         [TargetRpc]
-        private void TargetRpcHookAttached(NetworkConnection conn, Vector3 point)
+        private void TargetRpcHookAttached(NetworkConnection conn, Vector3 point, Vector3 normal)
         {
             // Re-check rather than trust the state from the moment of firing -
             // the player may have died, started sliding-with-abilities-disabled,
@@ -220,6 +248,10 @@ namespace OffAngle.Networking
                 CmdReleaseGrapple();
                 return;
             }
+
+            // Classified once here and consulted later in HandlePullExited -
+            // see this file's GROUND ANCHORS header note.
+            _pendingAnchorIsGround = Vector3.Dot(normal, Vector3.up) >= _groundAnchorNormalThreshold;
 
             _state = GrappleState.Pulling;
             _stateMachine.BeginAbilityMovement(new GrapplePullDriver(point, HandlePullExited));
@@ -234,15 +266,19 @@ namespace OffAngle.Networking
 
         /// <summary>
         /// GrapplePullDriver's onExit callback - fires exactly once per pull
-        /// activation. A real arrival (Arrived) begins the wall hold instead
-        /// of releasing - the hook stays attached/spawned as its visual
-        /// anchor for the duration. Every other reason
+        /// activation. A real arrival (Arrived) at a WALL/CEILING anchor
+        /// begins the wall hold instead of releasing - the hook stays
+        /// attached/spawned as its visual anchor for the duration. An
+        /// arrival at a GROUND anchor (_pendingAnchorIsGround) skips the
+        /// hold and releases immediately instead, carrying the pull's full
+        /// tow velocity straight into Airborne/Grounded - see this file's
+        /// GROUND ANCHORS header note. Every other reason
         /// (Interrupted/TimedOut/Obstructed) releases immediately, exactly
         /// as this method always has.
         /// </summary>
         private void HandlePullExited(GrapplePullExitReason reason)
         {
-            if (reason == GrapplePullExitReason.Arrived)
+            if (reason == GrapplePullExitReason.Arrived && !_pendingAnchorIsGround)
             {
                 _state = GrappleState.Holding;
                 _stateMachine.BeginAbilityMovement(new GrappleWallHoldDriver(HandleHoldExited));
@@ -287,18 +323,24 @@ namespace OffAngle.Networking
             direction.Normalize();
 
             NetworkObject instance = Instantiate(_hookPrefab.NetworkObject, origin, Quaternion.LookRotation(direction, Vector3.up));
-            InstanceFinder.ServerManager.Spawn(instance, base.Owner);
 
             GrappleHook hook = instance.GetComponent<GrappleHook>();
             if (hook == null)
             {
-                instance.Despawn();
+                Destroy(instance.gameObject); // Not yet spawned - plain Destroy, not Despawn().
                 return;
             }
 
+            // MUST happen before Spawn() - see GrappleHook.ServerSetOwner's
+            // doc comment for why setting this after Spawn() silently broke
+            // the rope tracer's owner-identification for every observer,
+            // including the firing player's own client.
+            hook.ServerSetOwner(base.NetworkObject);
+            InstanceFinder.ServerManager.Spawn(instance, base.Owner);
+
             _activeHook = hook;
             float lifetime = Mathf.Max(0.05f, _maxRange / Mathf.Max(0.01f, _hookSpeed));
-            hook.ServerInitialize(base.NetworkObject, transform.root, direction * _hookSpeed, _useGravity, lifetime, _ignoreDamageableEntities, _excludedLayers, ServerOnHookResolved);
+            hook.ServerInitialize(transform.root, direction * _hookSpeed, _useGravity, lifetime, _ignoreDamageableEntities, _excludedLayers, ServerOnHookResolved);
         }
 
         /// <summary>Server-only. GrappleHook's resolution callback - fires exactly once per hook.</summary>
@@ -310,7 +352,9 @@ namespace OffAngle.Networking
             {
                 // Hook stays alive/spawned as the pull's visual anchor -
                 // released later via CmdReleaseGrapple (see HandlePullExited).
-                TargetRpcHookAttached(base.Owner, point);
+                // normal is forwarded so the owner can classify ground vs.
+                // wall/ceiling anchors - see GROUND ANCHORS header note.
+                TargetRpcHookAttached(base.Owner, point, normal);
             }
             else
             {

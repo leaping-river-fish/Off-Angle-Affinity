@@ -24,9 +24,19 @@
 //   DoubleJump      : always overrides ctx.Velocity.y; horizontal preserved
 //                     only if held direction ~matches current travel, else
 //                     redirected + reduced (see AirborneState.ApplyDoubleJumpRedirect)
+//
+// MOMENTUM PRESERVATION (see GroundMomentum.cs for the full model):
+//   Any time horizontal speed exceeds MovementSettings.NormalMaxSpeed (the
+//   walk/sprint cap - not a separate hardcoded number), Grounded/Crouching/
+//   Airborne all hand off to GroundMomentum's shared decay+steer routine
+//   instead of directly setting velocity to the input-driven target speed.
+//   This is what lets a grapple release, a slide-jump, or a bunny-hop chain
+//   carry speed across a state transition without normal movement input
+//   instantly cancelling it.
 // =============================================================================
 
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace OffAngle.Movement
 {
@@ -201,8 +211,32 @@ namespace OffAngle.Movement
         [Tooltip("Sprint speed in meters/second.")]
         public float SprintSpeed = 7f;
         public float CrouchSpeed = 2.5f;   // PHASE 2: used by CrouchingState
-        [Tooltip("How much speed ABOVE the walk/sprint/crouch cap decays per second (m/s²) while grounded or crouched - momentum at or below the cap is never affected. This is what lets bunny hopping (chaining jumps to carry speed built up in AirborneState/SlidingState) work: Airborne applies no such decay, so re-jumping is always better than staying grounded once above normal speed. Lower = momentum lasts longer between hops; higher = settles back to normal speed faster; 0 = momentum never decays while grounded.")]
-        public float BunnyHopMomentumDecay = 6f;
+
+        /// <summary>
+        /// The single global speed (m/s) above which a player is considered
+        /// to be carrying preserved momentum (grapple, slide-jump, bunny-hop
+        /// chain, ...) rather than just walking or sprinting - see
+        /// GroundMomentum.cs. Deliberately a computed property rather than a
+        /// separate serialized field: reuses the existing WalkSpeed/
+        /// SprintSpeed tunables instead of introducing a second, driftable
+        /// source of truth for "normal top speed". Today this evaluates to
+        /// SprintSpeed (7 m/s) since Sprint is always faster than Walk.
+        /// </summary>
+        public float NormalMaxSpeed => Mathf.Max(WalkSpeed, SprintSpeed);
+
+        [Header("Momentum Preservation")]
+        [Tooltip("How much excess speed (m/s²) above NormalMaxSpeed decays per second while GROUNDED or CROUCHED - applies identically whether or not movement input is held, so releasing input never causes a sudden change in decay behavior. Tuned much stronger than AirMomentumDecay so a fast landing or slide bleeds off within roughly a second instead of sliding across the ground indefinitely. Never reduces speed below NormalMaxSpeed - normal walk/sprint/crouch speed is completely unaffected.")]
+        public float GroundMomentumDecay = 20f;
+        [Tooltip("How much excess speed (m/s²) above NormalMaxSpeed decays per second while AIRBORNE. Deliberately much weaker than GroundMomentumDecay - this is what makes a grapple release or a slide-jump feel committed to its trajectory instead of losing speed at the same rate as touching the ground. Never reduces speed below NormalMaxSpeed.")]
+        public float AirMomentumDecay = 1.5f;
+        [Tooltip("Acceleration (m/s²) used to steer (not replace) velocity direction while GROUNDED/CROUCHED with speed above NormalMaxSpeed. Input nudges the momentum vector toward the wish direction over time rather than instantly snapping to it - the higher this is, the more responsive steering feels at the cost of momentum being easier to redirect.")]
+        public float GroundMomentumSteerAcceleration = 12f;
+        [Tooltip("Acceleration (m/s²) used to steer (not replace) velocity direction while AIRBORNE with speed above NormalMaxSpeed. Independent of GroundMomentumSteerAcceleration so air steering while carrying momentum can be tuned separately from ground steering.")]
+        public float AirMomentumSteerAcceleration = 6f;
+        [Tooltip("Small buffer (m/s) added to NormalMaxSpeed when deciding whether the player is in momentum mode. Prevents floating-point jitter right at the threshold from flickering between normal movement and momentum decay on consecutive frames.")]
+        public float MomentumTolerance = 0.05f;
+        [Tooltip("Hard safety ceiling (m/s) on any horizontal speed preserved by the momentum system, regardless of source (grapple, slide-jump, external forces, stacked abilities). Should sit comfortably above GrappleMaxPullSpeed and SlideMaxSpeed so it never interferes with normal ability use - it only exists to bound worst-case exploits/stacking.")]
+        public float MaxPreservedSpeed = 60f;
 
         [Header("Jumping")]
         [Tooltip("Apex height in meters. Drives jump velocity via v = sqrt(2 * h * g).")]
@@ -211,6 +245,15 @@ namespace OffAngle.Movement
         public float Gravity     = 20f;
         [Tooltip("Base number of jumps before the player must land again. 1 = single jump, 2 = double jump, etc. Not hardcoded to any specific count - runtime bonuses stack on top via MovementStateMachine.AddMaxJumpsBonus (see MovementStateContext.EffectiveMaxJumps), so Affinities/perks/buffs can grant extra jumps without touching this value.")]
         public int   MaxJumps    = 1;
+
+        /// <summary>
+        /// Vertical exit speed for a jump of JumpHeight under Gravity
+        /// (v = sqrt(2 * h * g)). Single source of truth for every jump
+        /// impulse (ground jump, crouch-jump, slide-jump, double jump) -
+        /// mirrors the EffectiveMaxJumps computed-property pattern on
+        /// MovementStateContext instead of each state re-deriving it.
+        /// </summary>
+        public float JumpVelocity => Mathf.Sqrt(2f * JumpHeight * Gravity);
 
         [Header("Double Jump Redirect")]
         [Range(-1f, 1f)]

@@ -18,8 +18,14 @@ namespace OffAngle.Movement.Grapple
 {
     public static class GrappleEvents
     {
-        /// <summary>Raised on every peer the instant a hook is spawned (piggybacks on the hook's own NetworkObject spawn message).</summary>
-        public static event System.Action<NetworkObject, Vector3, Vector3> HookFired;
+        /// <summary>
+        /// Raised on every peer the instant a hook is spawned (piggybacks on
+        /// the hook's own NetworkObject spawn message). The Transform is the
+        /// hook's own - it stays valid (and simply stops moving) once the
+        /// hook attaches, so a rope/tether renderer can hang onto it for the
+        /// whole flight-through-attached lifetime without re-subscribing.
+        /// </summary>
+        public static event System.Action<NetworkObject, Transform, Vector3, Vector3> HookFired;
 
         /// <summary>Raised on every peer when a hook attaches to a valid surface.</summary>
         public static event System.Action<NetworkObject, Vector3, Vector3> HookAttached;
@@ -30,7 +36,7 @@ namespace OffAngle.Movement.Grapple
         /// <summary>Raised on every peer when an attached hook is released (pull completed, cancelled, or the owner died).</summary>
         public static event System.Action<NetworkObject> HookReleased;
 
-        public static void RaiseHookFired(NetworkObject owner, Vector3 origin, Vector3 direction) => HookFired?.Invoke(owner, origin, direction);
+        public static void RaiseHookFired(NetworkObject owner, Transform hookTransform, Vector3 origin, Vector3 direction) => HookFired?.Invoke(owner, hookTransform, origin, direction);
         public static void RaiseHookAttached(NetworkObject owner, Vector3 point, Vector3 normal) => HookAttached?.Invoke(owner, point, normal);
         public static void RaiseHookMissed(NetworkObject owner) => HookMissed?.Invoke(owner);
         public static void RaiseHookReleased(NetworkObject owner) => HookReleased?.Invoke(owner);

@@ -62,17 +62,27 @@
 //     jump fires to extend reach further. Horizontal velocity from the pull
 //     is preserved exactly like a slide-jump.
 //
-//   Grapple pull → Arrived → WallHold → Release
-//     A pull that actually reaches GrappleReleaseDistance of the anchor
-//     (GrapplePullExitReason.Arrived) does NOT release immediately - it
-//     begins GrappleWallHoldDriver, which zeroes ctx.Velocity and freezes
-//     the player in place for GrappleWallHoldDuration seconds (look/aim/fire
+//   Grapple pull → Arrived at a WALL/CEILING → WallHold → Release
+//     A pull that actually reaches GrappleReleaseDistance of a WALL/CEILING
+//     anchor (GrapplePullExitReason.Arrived, surface normal mostly
+//     horizontal) does NOT release immediately - it begins
+//     GrappleWallHoldDriver, which zeroes ctx.Velocity and freezes the
+//     player in place for GrappleWallHoldDuration seconds (look/aim/fire
 //     still work; only movement is locked). Pressing Jump during the hold
 //     ends it immediately with a normal jump impulse (a wall-jump-style
 //     cancel); otherwise the hold releases into Airborne/Grounded with
 //     ctx.Velocity left at zero once the duration elapses. See
 //     GrappleWallHoldDriver.cs and PlayerGrapple.HandlePullExited/
 //     HandleHoldExited for the full Pulling → Holding → Idle chain.
+//
+//   Grapple pull → Arrived at the GROUND → Release (launch forward)
+//     An arrival at a GROUND anchor (surface normal mostly vertical, see
+//     PlayerGrapple's _groundAnchorNormalThreshold) skips GrappleWallHoldDriver
+//     entirely - GrapplePullDriver never touches ctx.Velocity on exit, so
+//     releasing immediately (exactly like a manual slingshot cancel) carries
+//     the pull's full tow speed/direction straight into Airborne/Grounded.
+//     This is what makes "hook the ground, release, launch forward" work -
+//     see PlayerGrapple.cs's GROUND ANCHORS header note.
 //
 //   Zipline → Jump
 //     Jump exit: ctx.Velocity = zipline tangent × zipline speed + upward impulse.
@@ -159,13 +169,39 @@
 //                          can't grind through/into geometry either.
 //   Wall kick vs double    Wall kick is free; wall run + jump consumes a charge.
 //   Bunny hop momentum     INTENTIONAL, not an exploit: GroundedState/
-//                          CrouchingState preserve speed above the walk/
-//                          sprint/crouch cap instead of clamping it away (see
-//                          GroundMomentum.cs) and Airborne applies no speed
-//                          decay at all - only BunnyHopMomentumDecay bleeds
-//                          it off, and only while grounded. Chaining jumps is
-//                          deliberately the strictly better choice once above
-//                          normal speed.
+//                          CrouchingState/AirborneState all preserve speed
+//                          above MovementSettings.NormalMaxSpeed (the global
+//                          momentum threshold - see GroundMomentum.cs)
+//                          instead of clamping it away. Ground decay
+//                          (Settings.GroundMomentumDecay) is deliberately
+//                          much stronger than air decay
+//                          (Settings.AirMomentumDecay), so chaining jumps to
+//                          stay airborne is always the strictly better
+//                          choice once above normal speed, and grounded
+//                          momentum bleeds off within roughly a second
+//                          instead of sliding indefinitely.
+//   Momentum cancelled     Below MovementSettings.NormalMaxSpeed, holding
+//   by normal input        movement input still directly sets velocity to
+//                          the walk/sprint/crouch cap (unchanged, fully
+//                          responsive feel). Above that threshold, input
+//                          only STEERS the momentum vector via acceleration
+//                          (Settings.GroundMomentumSteerAcceleration /
+//                          AirMomentumSteerAcceleration) - it never replaces
+//                          velocity outright, so holding a direction that
+//                          happens to roughly match the player's current
+//                          heading (the overwhelmingly common case right
+//                          after a grapple release or slide-jump) can no
+//                          longer instantly snap speed back down to normal.
+//   Momentum on landing    Landing (or releasing input) at or below
+//   with no input          NormalMaxSpeed still stops instantly - normal
+//                          feel, unchanged. Bonus momentum above that
+//                          threshold (grapple launch, bunny-hop chain,
+//                          slide-jump) decays smoothly toward
+//                          NormalMaxSpeed via GroundMomentumDecay/
+//                          AirMomentumDecay instead of zeroing in one frame,
+//                          identically whether or not input is held - so
+//                          touching ground (or releasing input mid-air)
+//                          never erases the reward instantly.
 //
 // ───────────────────────────────────────────────────────────────────────────
 // MULTIPLAYER SYNC NOTES

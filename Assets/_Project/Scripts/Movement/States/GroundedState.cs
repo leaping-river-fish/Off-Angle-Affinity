@@ -26,11 +26,13 @@
 //     isGrounded can flicker on flat surfaces.
 //   - ctx.Velocity.x/z reflect actual horizontal movement this frame -
 //     computed via GroundMomentum.ComputeHorizontalVelocity(), which only
-//     clamps to the walk/sprint cap when AT or BELOW it; speed carried in
-//     from a jump chain or slide-jump above that cap is preserved and only
-//     slowly decays (BunnyHopMomentumDecay), which is what makes bunny
-//     hopping actually reward chained jumps instead of losing all momentum
-//     the instant the player touches ground.
+//     snaps directly to the walk/sprint cap when speed is AT or BELOW
+//     MovementSettings.NormalMaxSpeed; speed above that global threshold
+//     (from a jump chain, slide-jump, or grapple release) is preserved,
+//     steered by input rather than replaced, and only gradually decays via
+//     Settings.GroundMomentumDecay - which is what makes bunny hopping
+//     actually reward chained jumps instead of losing all momentum the
+//     instant the player touches ground.
 //   - On jump: ctx.Velocity.y is set to the impulse BEFORE TransitionTo().
 //     AirborneState.Enter() does NOT recompute it — it inherits exactly this.
 //   - Ledge fall: XZ velocity is preserved as-is so the player launches off
@@ -121,14 +123,10 @@ namespace OffAngle.Movement.States
                 ? ctx.Settings.SprintSpeed
                 : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
 
-            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
-            Vector3 wishDir  = ctx.PlayerTransform.right   * rawInput.x
-                             + ctx.PlayerTransform.forward * rawInput.y;
-
             // Clamp to [0,1] so diagonal keyboard input (which has magnitude ~1.41)
             // does not exceed the intended speed. Analog sticks already return
             // values <= 1, so this is future-proof for controller support.
-            float inputMag = Mathf.Clamp01(rawInput.magnitude);
+            Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
 
             // Bunny hop: if the player landed carrying more speed than the
             // walk/sprint cap (from a jump chain or slide-jump), preserve it
@@ -159,14 +157,10 @@ namespace OffAngle.Movement.States
 
         private void PerformJump(MovementStateContext ctx)
         {
-            // Derive required exit velocity from desired apex height.
-            // Formula: v = sqrt(2 * h * g), from kinematic equations.
-            float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
-
             // Override only vertical — horizontal speed flows into the jump arc
             // unchanged. This means a sprinting player jumps further than a
             // walking one, which is both physically correct and good game feel.
-            ctx.Velocity.y = jumpVelocity;
+            ctx.Velocity.y = ctx.Settings.JumpVelocity;
             ctx.RemainingJumps--;
 
             ctx.StateMachine.TransitionTo(MovementStateId.Airborne);

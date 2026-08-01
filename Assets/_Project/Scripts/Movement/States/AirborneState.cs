@@ -52,13 +52,25 @@
 //   call TransitionTo(WallRunning) when a qualifying surface is found.
 //
 // AIR CONTROL MODEL:
-//   Acceleration-based: each frame, a wish-direction vector is computed and
-//   added at AirAcceleration × AirControlMultiplier m/s². The result is then
-//   clamped to the current move speed cap. This model:
-//     - Preserves momentum injected by grapples or slide-jumps (speed > cap
-//       is not clipped downward, only excess acceleration is blocked)
-//     - Gives the player partial steering without full ground-level control
-//     - Can be tuned independently of ground speed via AirAcceleration
+//   Two regimes, split at GroundMomentum.GetMomentumThreshold (see
+//   GroundMomentum.cs and MovementSettings.NormalMaxSpeed):
+//     - AT OR BELOW the threshold: classic acceleration-based air control,
+//       unchanged from before the momentum system existed - each frame, a
+//       wish-direction vector is added at AirAcceleration ×
+//       AirControlMultiplier m/s², then clamped to the current move speed
+//       cap × inputMag.
+//     - ABOVE the threshold (momentum carried in from a grapple release,
+//       slide-jump, or bunny-hop chain): hands off entirely to
+//       GroundMomentum.ComputeAirborneMomentumVelocity, which steers via
+//       AirMomentumSteerAcceleration and decays via AirMomentumDecay -
+//       deliberately much weaker than the ground equivalents, so speed is
+//       preserved far longer in the air than on the ground and normal
+//       movement input can never instantly snap it back down to the cap.
+//       This replaced an old clamp that measured the dot product between
+//       wish direction and current velocity and snapped straight down to
+//       the cap whenever they roughly matched - which fired on nearly every
+//       "hold forward after a grapple release" case and was the primary
+//       cause of momentum feeling like it got cancelled by normal input.
 // =============================================================================
 
 using UnityEngine;
@@ -104,8 +116,7 @@ namespace OffAngle.Movement.States
                     // held direction roughly matches current travel - see
                     // ApplyDoubleJumpRedirect for the "different direction"
                     // case.
-                    float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
-                    ctx.Velocity.y = jumpVelocity;
+                    ctx.Velocity.y = ctx.Settings.JumpVelocity;
                     ctx.RemainingJumps--;
 
                     ApplyDoubleJumpRedirect(ctx);
@@ -211,8 +222,8 @@ namespace OffAngle.Movement.States
         /// </summary>
         private void ApplyDoubleJumpRedirect(MovementStateContext ctx)
         {
-            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
-            if (rawInput.sqrMagnitude < 0.001f)
+            Vector3 rawWishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
+            if (inputMag * inputMag < 0.001f)
                 return; // No held direction to redirect toward.
 
             Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
@@ -220,7 +231,7 @@ namespace OffAngle.Movement.States
             if (speed < 0.01f)
                 return; // Not moving horizontally - nothing to redirect.
 
-            Vector3 wishDir = (ctx.PlayerTransform.right * rawInput.x + ctx.PlayerTransform.forward * rawInput.y).normalized;
+            Vector3 wishDir = rawWishDir.normalized;
             float dot = Vector3.Dot(horizontal / speed, wishDir);
 
             if (dot >= ctx.Settings.DoubleJumpRedirectDotThreshold)
@@ -240,38 +251,61 @@ namespace OffAngle.Movement.States
 
         private void ApplyAirControl(MovementStateContext ctx, float deltaTime)
         {
-            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
-            if (rawInput.sqrMagnitude < 0.001f)
+            Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
+            Vector3 horizontal3 = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            float currentSpeed = horizontal3.magnitude;
+            float momentumThreshold = GroundMomentum.GetMomentumThreshold(ctx);
+
+            // ABOVE the momentum threshold: never clamp back down to the
+            // normal cap. Preserve the trajectory, let input steer it
+            // gradually, and bleed off only the excess via AirMomentumDecay -
+            // see GroundMomentum.cs and this file's AIR CONTROL MODEL note.
+            if (currentSpeed > momentumThreshold + ctx.Settings.MomentumTolerance)
+            {
+                Vector3 result = GroundMomentum.ComputeAirborneMomentumVelocity(ctx, horizontal3, wishDir, inputMag, deltaTime);
+                ctx.Velocity.x = result.x;
+                ctx.Velocity.z = result.z;
+                return;
+            }
+
+            // AT OR BELOW the threshold: classic acceleration-based air
+            // control, unchanged from before the momentum system existed.
+            if (inputMag * inputMag < 0.001f)
                 return;
 
             float speed = (ctx.Input.IsSprinting
                 ? ctx.Settings.SprintSpeed
                 : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
 
-            Vector3 wishDir = ctx.PlayerTransform.right   * rawInput.x
-                            + ctx.PlayerTransform.forward * rawInput.y;
+            // Normalized once and reused below instead of calling
+            // wishDir.normalized twice (x and z components separately).
+            Vector3 wishDirNormalized = wishDir.normalized;
 
             // Accelerate toward wish direction. Using acceleration (not direct
             // set) preserves momentum from slides and grapple swings while still
             // giving the player meaningful steering influence.
             float accel = ctx.Settings.AirAcceleration * ctx.Settings.AirControlMultiplier;
-            ctx.Velocity.x += wishDir.normalized.x * accel * deltaTime;
-            ctx.Velocity.z += wishDir.normalized.z * accel * deltaTime;
+            ctx.Velocity.x += wishDirNormalized.x * accel * deltaTime;
+            ctx.Velocity.z += wishDirNormalized.z * accel * deltaTime;
 
             // Clamp horizontal speed to the move speed cap.
             // NOTE: This only prevents the player from accelerating beyond cap
             // via input. Momentum injected by grapples or slide-jumps that
-            // exceeds this value is preserved — we do not clamp downward.
+            // exceeds this value is handled by the branch above and never
+            // reaches this clamp.
             Vector2 horizontal = new Vector2(ctx.Velocity.x, ctx.Velocity.z);
-            float   targetCap  = speed * Mathf.Clamp01(rawInput.magnitude);
+            float   targetCap  = speed * inputMag;
 
             if (horizontal.magnitude > targetCap)
             {
                 // Only clamp if the player's input-driven component is
                 // responsible for the excess, not existing momentum.
                 // Simple approach: clamp if we're also accelerating in the
-                // same direction as the current velocity.
-                Vector2 wishDir2D = new Vector2(wishDir.x, wishDir.z).normalized;
+                // same direction as the current velocity. This also
+                // preserves Quake-style air-strafing below the cap: strafing
+                // at an angle to current velocity (dot <= 0) is deliberately
+                // left unclamped, exactly as before the momentum system.
+                Vector2 wishDir2D = new Vector2(wishDirNormalized.x, wishDirNormalized.z);
                 float   dot       = Vector2.Dot(horizontal.normalized, wishDir2D);
 
                 if (dot > 0f)

@@ -170,11 +170,10 @@ namespace OffAngle.Movement.States
         {
             if (ctx.RemainingJumps <= 0) return;
 
-            // Identical vertical formula to GroundedState.PerformJump -
-            // horizontal slide speed carries fully into the jump arc, giving
-            // the "launch pad" feel documented in IMovementState.cs.
-            float jumpVelocity = Mathf.Sqrt(2f * ctx.Settings.JumpHeight * ctx.Settings.Gravity);
-            ctx.Velocity.y = jumpVelocity;
+            // Same JumpVelocity as GroundedState.PerformJump - horizontal
+            // slide speed carries fully into the jump arc, giving the
+            // "launch pad" feel documented in IMovementState.cs.
+            ctx.Velocity.y = ctx.Settings.JumpVelocity;
             ctx.RemainingJumps--;
 
             ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
@@ -182,19 +181,18 @@ namespace OffAngle.Movement.States
 
         private void ApplySteering(MovementStateContext ctx, float deltaTime)
         {
-            Vector2 rawInput = ctx.InputLocked ? Vector2.zero : ctx.Input.MoveInput;
-            if (rawInput.sqrMagnitude < 0.001f)
+            Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
+            if (inputMag * inputMag < 0.001f)
                 return;
-
-            Vector3 wishDir = ctx.PlayerTransform.right   * rawInput.x
-                            + ctx.PlayerTransform.forward * rawInput.y;
 
             // Same acceleration-based steering model as AirborneState's air
             // control - preserves slide speed/momentum while still letting
-            // the player nudge direction.
+            // the player nudge direction. Normalized once and reused instead
+            // of calling wishDir.normalized twice.
+            Vector3 wishDirNormalized = wishDir.normalized;
             float accel = ctx.Settings.SlideSteerAcceleration * ctx.SpeedMultiplier;
-            ctx.Velocity.x += wishDir.normalized.x * accel * deltaTime;
-            ctx.Velocity.z += wishDir.normalized.z * accel * deltaTime;
+            ctx.Velocity.x += wishDirNormalized.x * accel * deltaTime;
+            ctx.Velocity.z += wishDirNormalized.z * accel * deltaTime;
         }
 
         private void ApplySlopeSpeed(MovementStateContext ctx, float deltaTime)
