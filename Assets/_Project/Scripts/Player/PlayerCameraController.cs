@@ -4,8 +4,14 @@
 // ARCHITECTURE:
 //   Lives on the Camera child GameObject; completely decoupled from movement.
 //   Subscribes to PlayerInputReader.LookEvent and applies:
-//     Pitch (up/down) → this transform's localRotation.x   (camera only)
+//     Pitch (up/down) → _pitchTarget's localRotation.x
 //     Yaw (left/right) → _playerRoot transform's rotation.y (whole body)
+//
+//   _pitchTarget defaults to this transform (camera-only pitch) if left
+//   unassigned, but should be pointed at the shared camera/weapon pivot
+//   (e.g. "Camera Pivot") that also parents the first-person weapon holder
+//   and arms - otherwise looking up/down only tilts the camera and the
+//   viewmodel visibly stays level while the world doesn't.
 //
 //   Separating camera from movement lets future states apply independent
 //   camera effects (e.g. WallRunningState dutch roll, GrapplingState
@@ -35,6 +41,12 @@ namespace OffAngle.Player
         [Tooltip("The player root that owns the CharacterController. " +
                  "Leave null to auto-resolve as transform.parent.")]
         [SerializeField] private Transform         _playerRoot;
+        [Tooltip("Transform that receives pitch (up/down look) rotation. Leave " +
+                 "unassigned to pitch only this transform (camera-only, the old " +
+                 "default). Point this at the shared pivot that also parents the " +
+                 "first-person weapon holder/arms (e.g. \"Camera Pivot\") so the " +
+                 "gun and arms tilt with the camera instead of staying level.")]
+        [SerializeField] private Transform         _pitchTarget;
         [SerializeField] private PlayerInputReader _inputReader;
 
         [Header("Sensitivity")]
@@ -62,6 +74,9 @@ namespace OffAngle.Player
             if (_playerRoot == null)
                 _playerRoot = transform.parent;
 
+            if (_pitchTarget == null)
+                _pitchTarget = transform;
+
             if (_inputReader == null)
                 _inputReader = GetComponentInParent<PlayerInputReader>();
         }
@@ -73,7 +88,7 @@ namespace OffAngle.Player
 
             // Seed angles from current transforms to avoid a snap on enable
             _yaw   = _playerRoot.eulerAngles.y;
-            _pitch = transform.localEulerAngles.x;
+            _pitch = _pitchTarget.localEulerAngles.x;
             // Unity stores pitch in 0–360; normalise to -180–180 for clamping
             if (_pitch > 180f) _pitch -= 360f;
 
@@ -121,9 +136,11 @@ namespace OffAngle.Player
             // direction always matches where the player is looking horizontally
             _playerRoot.rotation = Quaternion.Euler(0f, _yaw, 0f);
 
-            // Rotate only the camera on the X axis so looking up/down does not
-            // tilt the CharacterController capsule (which would break slope logic)
-            transform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
+            // Rotate only _pitchTarget on the X axis so looking up/down does not
+            // tilt the CharacterController capsule (which would break slope logic).
+            // Everything parented under _pitchTarget (camera, and - once wired -
+            // the first-person weapon holder/arms) tilts along with it for free.
+            _pitchTarget.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
         }
     }
 }

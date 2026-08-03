@@ -27,12 +27,25 @@
 //   - ctx.Velocity.x/z reflect actual horizontal movement this frame -
 //     computed via GroundMomentum.ComputeHorizontalVelocity(), which only
 //     snaps directly to the walk/sprint cap when speed is AT or BELOW
-//     MovementSettings.NormalMaxSpeed; speed above that global threshold
+//     MovementSettings.NormalMaxSpeed. Speed above that global threshold
 //     (from a jump chain, slide-jump, or grapple release) is preserved,
 //     steered by input rather than replaced, and only gradually decays via
-//     Settings.GroundMomentumDecay - which is what makes bunny hopping
-//     actually reward chained jumps instead of losing all momentum the
-//     instant the player touches ground.
+//     Settings.GroundMomentumDecay - but ONLY while
+//     GroundMomentum.ShouldPreserveGroundMomentum(ctx) is true, i.e. within
+//     the short bunny-hop grace window stamped on landing
+//     (Settings.GroundMomentumGraceDuration) or while ctx.OnIcyGround is
+//     true (reserved for a future ice terrain type). This is what makes
+//     bunny hopping actually reward jumps timed right after landing.
+//     Outside the grace window (and not on ice), excess momentum instead
+//     hard-stops instantly - the player fully stops on the ground by
+//     default; staying grounded too long after a fast landing is not a way
+//     to coast around at grapple/slide speed.
+//   - The walk/sprint speed cap fed into GroundMomentum is itself instantly
+//     scaled by slope steepness/heading before that call - see
+//     SlopeUtility.GetSlopeSpeedMultiplier and
+//     MovementSettings.SlopeUphillSpeedMultiplier/SlopeDownhillSpeedMultiplier.
+//     Same responsive, no-ramp feel as flat-ground movement; does not affect
+//     the momentum decay/steer branch above NormalMaxSpeed.
 //   - On jump: ctx.Velocity.y is set to the impulse BEFORE TransitionTo().
 //     AirborneState.Enter() does NOT recompute it — it inherits exactly this.
 //   - Ledge fall: XZ velocity is preserved as-is so the player launches off
@@ -128,6 +141,13 @@ namespace OffAngle.Movement.States
             // values <= 1, so this is future-proof for controller support.
             Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
 
+            // Slope-aware speed: instantly scales the walk/sprint cap based on
+            // slope steepness and how directly the player is heading up/down
+            // it - see SlopeUtility.GetSlopeSpeedMultiplier. Only affects this
+            // cap, so it never touches the momentum decay/steer branch below.
+            if (inputMag > 0.001f)
+                speed *= SlopeUtility.GetSlopeSpeedMultiplier(ctx, wishDir.normalized);
+
             // Bunny hop: if the player landed carrying more speed than the
             // walk/sprint cap (from a jump chain or slide-jump), preserve it
             // instead of snapping back down to cap - see GroundMomentum.cs.
@@ -140,7 +160,10 @@ namespace OffAngle.Movement.States
             ctx.Velocity = new Vector3(horizontalVelocity.x, -2f, horizontalVelocity.z);
 
             // ── 6. Move ───────────────────────────────────────────────────
-            ctx.Controller.Move(ctx.Velocity * deltaTime);
+            // Folds a ground-snap correction into this SAME Move() call - see
+            // SlopeUtility.MoveWithGroundSnap for why it must not be a
+            // separate Move() call (it would corrupt Controller.velocity).
+            SlopeUtility.MoveWithGroundSnap(ctx, ctx.Velocity * deltaTime, ctx.Settings.GroundSnapDistance);
         }
 
         public void FixedTick(MovementStateContext ctx, float fixedDeltaTime)

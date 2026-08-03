@@ -21,10 +21,21 @@
 //                                                   vertical impulse added -
 //                                                   the "launch pad" feel)
 //   SlideTimer <= 0                   → Crouching (if key held) else Grounded
+//                                        (NEVER fires while moving meaningfully
+//                                        downhill - see DURATION below)
 //   horizontal speed < SlideMinSpeed  → Crouching (if key held) else Grounded
 //                                        (flat ground never decelerates on its
 //                                        own now, so this mainly fires when
 //                                        sliding uphill - see SPEED MODEL)
+//
+// DURATION:
+//   SlideTimer only counts down while on flat ground or moving uphill.
+//   While the slide direction is meaningfully aligned with the slope's
+//   downhill direction (see ApplySlopeSpeed's isMovingDownhill /
+//   DownhillDotThreshold), the timer is frozen - a long downhill run is
+//   never cut short by SlideDuration (which is tuned for flat-ground
+//   slides). The slide still ends the moment speed drops below
+//   SlideMinSpeed or the player leaves the ground, downhill or not.
 //
 // CAPSULE:
 //   Deliberately does NOT touch CharacterController height/center. Crouch
@@ -48,7 +59,43 @@
 //   either assists (accelerates) or resists (decelerates) the current slide
 //   direction, scaled by SlideSlopeAcceleration. Set SlideSlopeAcceleration
 //   to 0 to disable slope sensitivity entirely - speed then never changes on
-//   its own while sliding (steering and the duration timer still apply).
+//   its own while sliding (steering and the duration timer still apply, and
+//   duration is then never treated as "downhill" either, since that also
+//   depends on the same ground-normal/SlideSlopeAcceleration-gated query).
+//
+//   Sliding meaningfully downhill is NOT capped at SlideMaxSpeed - it
+//   accelerates continuously up to MaxPreservedSpeed (the same global
+//   momentum safety ceiling GroundMomentum uses for grapples/bunny-hops),
+//   so a long slope keeps building speed instead of plateauing almost
+//   immediately. SlideMaxSpeed still applies once the player is on flat
+//   ground or moving uphill - but never by retroactively clamping speed
+//   already earned downhill back down; that speed simply holds (flat) or
+//   bleeds off via uphill resistance/SlideMinSpeed like normal.
+//
+// GROUND CONTACT:
+//   The same ground-normal query also drives the Y component of the applied
+//   Move() vector (see ApplyGroundVelocityY): instead of a purely horizontal
+//   move + a flat -2 ground-press constant, Y is solved so the move vector
+//   stays tangent to the slope surface. Without this, a fast slide down a
+//   steep slope would repeatedly outrun the flat -2 press, detach from the
+//   ground, and re-snap onto it every frame or two - visible as a "bumpy"
+//   slide. Flat ground and uphill slopes are unaffected (clamped to the same
+//   -2 as before); only downhill gets the extra pull-down.
+//
+//   The tangent-Y solve is still only a linear approximation of ONE raycast
+//   sample per Tick, so it can leave a tiny leftover gap against a curved or
+//   faceted real slope. SlopeUtility.MoveWithGroundSnap() folds a corrective
+//   downward nudge into that SAME Move() call (see MovementSettings.
+//   GroundSnapDistance) - this is what actually prevents the leftover gap
+//   from reading as Controller.isGrounded == false on the NEXT Tick, which
+//   would otherwise bounce the state machine into AirborneState and back
+//   the instant ground is re-detected (a visible bump on its own, on top of
+//   whatever the tangent-Y solve already smoothed over). A real ledge/drop
+//   beyond GroundSnapDistance is untouched - isGrounded still correctly
+//   goes false and this state exits to Airborne as intended. Must stay a
+//   SINGLE Move() call, not a separate corrective one afterwards - see
+//   MoveWithGroundSnap's doc comment for why a second call corrupts
+//   Controller.velocity (this previously broke SpeedHeightHUD).
 // =============================================================================
 
 using UnityEngine;
@@ -59,10 +106,18 @@ namespace OffAngle.Movement.States
     {
         public MovementStateId StateId => MovementStateId.Sliding;
 
-        // Extra distance beyond the capsule's half-height to cast the
-        // ground-normal ray - generous enough to still hit gentle downslopes
-        // without the ray starting inside the capsule itself.
-        private const float GroundRayExtraDistance = 0.5f;
+        // Below this ground-normal.y, the slope is too steep/unreliable to
+        // solve the tangent-velocity formula against (near-vertical
+        // surfaces blow the divide up) - fall back to the flat ground-press
+        // constant instead. CharacterController.slopeLimit already prevents
+        // standing on anything this steep in practice.
+        private const float MinSlopeNormalYForTangentVelocity = 0.2f;
+
+        // Minimum downhill alignment (dot product with the slope's downhill
+        // direction) required before a slide counts as "moving downhill" for
+        // the infinite-duration rule below - filters out near-flat/contour
+        // strafing so the timer doesn't flicker on/off near dot ≈ 0.
+        private const float DownhillDotThreshold = 0.15f;
 
         // ------------------------------------------------------------------
         // IMovementState implementation
@@ -125,21 +180,36 @@ namespace OffAngle.Movement.States
             // ── 3. Steering ─────────────────────────────────────────────────
             ApplySteering(ctx, deltaTime);
 
+            // Single ground-normal query reused by both the slope speed
+            // update (step 4) and the slope-tangent vertical velocity
+            // (step 6) - avoids raycasting twice per Tick for the same data.
+            bool onSlope = SlopeUtility.TryGetGroundNormal(ctx, out Vector3 groundNormal);
+
             // ── 4. Slope-aware speed update ───────────────────────────────
-            ApplySlopeSpeed(ctx, deltaTime);
+            bool isMovingDownhill = ApplySlopeSpeed(ctx, deltaTime, onSlope, groundNormal);
 
             // ── 5. Timer + minimum-speed exit checks ──────────────────────
-            ctx.SlideTimer -= deltaTime;
+            // A slide moving meaningfully downhill never expires by time -
+            // only by slowing below SlideMinSpeed (e.g. the slope flattens
+            // out) or by leaving the ground. Without this, a long downhill
+            // slide would still get cut short mid-descent purely because
+            // SlideDuration (tuned for flat-ground slides) ran out. Flat
+            // ground and uphill slides use the normal timer unchanged.
+            if (!isMovingDownhill)
+                ctx.SlideTimer -= deltaTime;
+
             float horizontalSpeed = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z).magnitude;
 
-            bool timeExpired = ctx.SlideTimer <= 0f;
+            bool timeExpired = !isMovingDownhill && ctx.SlideTimer <= 0f;
             bool tooSlow      = horizontalSpeed < ctx.Settings.SlideMinSpeed;
 
-            // ── 6. Apply ground-press constant + move ─────────────────────
-            // Same CharacterController.isGrounded stability trick used by
-            // GroundedState/CrouchingState.
-            ctx.Velocity.y = -2f;
-            ctx.Controller.Move(ctx.Velocity * deltaTime);
+            // ── 6. Slope-tangent vertical velocity + move ─────────────────
+            ApplyGroundVelocityY(ctx, onSlope, groundNormal);
+
+            // Folds a ground-snap correction into this SAME Move() call - see
+            // SlopeUtility.MoveWithGroundSnap for why it must not be a
+            // separate Move() call (it would corrupt Controller.velocity).
+            SlopeUtility.MoveWithGroundSnap(ctx, ctx.Velocity * deltaTime, ctx.Settings.GroundSnapDistance);
 
             // ── 7. Exit ────────────────────────────────────────────────────
             if (timeExpired || tooSlow)
@@ -195,16 +265,18 @@ namespace OffAngle.Movement.States
             ctx.Velocity.z += wishDirNormalized.z * accel * deltaTime;
         }
 
-        private void ApplySlopeSpeed(MovementStateContext ctx, float deltaTime)
+        /// <summary>Returns true if the player is currently sliding meaningfully downhill (see DownhillDotThreshold) - used to gate the infinite-duration rule in Tick().</summary>
+        private bool ApplySlopeSpeed(MovementStateContext ctx, float deltaTime, bool onSlope, Vector3 groundNormal)
         {
             Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float speed = horizontal.magnitude;
-            if (speed < 0.001f) return;
+            if (speed < 0.001f) return false;
 
             Vector3 direction = horizontal / speed;
             float slopeAccel = 0f;
+            bool isMovingDownhill = false;
 
-            if (ctx.Settings.SlideSlopeAcceleration > 0f && TryGetGroundNormal(ctx, out Vector3 groundNormal))
+            if (ctx.Settings.SlideSlopeAcceleration > 0f && onSlope)
             {
                 // Downhill direction of the slope the player is standing on.
                 // Positive dot with the slide direction = sliding downhill
@@ -212,34 +284,64 @@ namespace OffAngle.Movement.States
                 Vector3 downhill = Vector3.ProjectOnPlane(Vector3.down, groundNormal).normalized;
                 float downhillDot = Vector3.Dot(direction, downhill);
                 slopeAccel = downhillDot * ctx.Settings.SlideSlopeAcceleration;
+                isMovingDownhill = downhillDot > DownhillDotThreshold;
             }
 
             // No baseline ambient friction: flat ground (slopeAccel == 0)
             // holds speed exactly constant ("flat speed"). Only an actual
-            // slope changes it, clamped to SlideMaxSpeed so a downhill run
-            // can't runaway-accelerate forever.
-            float newSpeed = Mathf.Clamp(speed + slopeAccel * deltaTime, 0f, ctx.Settings.SlideMaxSpeed);
+            // slope changes it.
+            //
+            // Sliding meaningfully downhill accelerates continuously past
+            // SlideMaxSpeed, capped only by MaxPreservedSpeed (the same
+            // global safety ceiling GroundMomentum uses for grapples/
+            // bunny-hops) - a long slope should keep rewarding the player
+            // with more speed instead of hitting SlideMaxSpeed almost
+            // immediately and plateauing. Flat ground/uphill still respect
+            // SlideMaxSpeed as the normal ceiling. Either way, the ceiling
+            // is never allowed to be LOWER than the speed already carried in
+            // (Mathf.Max) - so the moment a fast downhill run levels out
+            // onto flat ground or starts climbing, that earned speed is
+            // preserved (and decays naturally via uphill resistance/duration/
+            // SlideMinSpeed) instead of being instantly clamped down to
+            // SlideMaxSpeed.
+            float ceiling = isMovingDownhill ? ctx.Settings.MaxPreservedSpeed : ctx.Settings.SlideMaxSpeed;
+            ceiling = Mathf.Max(speed, ceiling);
+            float newSpeed = Mathf.Clamp(speed + slopeAccel * deltaTime, 0f, ceiling);
 
             horizontal = direction * newSpeed;
             ctx.Velocity.x = horizontal.x;
             ctx.Velocity.z = horizontal.z;
+
+            return isMovingDownhill;
         }
 
-        private bool TryGetGroundNormal(MovementStateContext ctx, out Vector3 normal)
+        /// <summary>
+        /// Sets the vertical component of ctx.Velocity used for this Tick's
+        /// Move() call. On a slope, solves for the Y that keeps
+        /// (Velocity.x, Y, Velocity.z) exactly tangent to the ground plane -
+        /// a horizontal-only move vector combined with the flat -2
+        /// ground-press constant can't keep pace with a steep/fast downhill
+        /// slope, so the CharacterController repeatedly detaches from and
+        /// re-snaps onto the surface each frame (the "bumpy" slide). Clamped
+        /// to never be LESS steep than the flat -2 constant (Mathf.Min), so
+        /// flat ground (tangent Y = 0) and uphill (tangent Y > 0) fall back
+        /// to exactly the old flat behavior - CharacterController's own
+        /// collision-and-slide already climbs walkable uphill slopes fine;
+        /// only the downhill case needed the extra pull-down. Only ever
+        /// touches Velocity.y, so this has zero effect on the horizontal
+        /// steering/slope-speed/exit-condition math above.
+        /// </summary>
+        private void ApplyGroundVelocityY(MovementStateContext ctx, bool onSlope, Vector3 groundNormal)
         {
-            float halfHeight = ctx.Controller.height * 0.5f;
-            float castDistance = halfHeight + GroundRayExtraDistance;
-            Vector3 origin = ctx.PlayerTransform.position + Vector3.up * halfHeight;
-
-            if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, castDistance,
-                    ~0, QueryTriggerInteraction.Ignore))
+            if (onSlope && groundNormal.y > MinSlopeNormalYForTangentVelocity)
             {
-                normal = hit.normal;
-                return true;
+                float tangentY = -(groundNormal.x * ctx.Velocity.x + groundNormal.z * ctx.Velocity.z) / groundNormal.y;
+                ctx.Velocity.y = Mathf.Min(tangentY, -2f);
             }
-
-            normal = Vector3.up;
-            return false;
+            else
+            {
+                ctx.Velocity.y = -2f;
+            }
         }
     }
 }

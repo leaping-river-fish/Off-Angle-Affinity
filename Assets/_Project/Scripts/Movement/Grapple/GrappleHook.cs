@@ -82,6 +82,21 @@ namespace OffAngle.Movement.Grapple
         private void Awake()
         {
             _rigidbody = GetComponent<Rigidbody>();
+
+            // Discrete (the prefab's serialized default) only tests for
+            // overlap once per physics step - at _hookSpeed (55 m/s default)
+            // against a 0.02s fixed timestep that's ~1.1m of travel per
+            // step, easily enough to skip clean over a thin panel, a
+            // pillar's edge, or a glancing hit on angled geometry without
+            // ever registering an overlap, so OnTriggerEnter silently never
+            // fires and the hook flies on to time out as a miss - exactly
+            // the "tracer goes into the wall but never pulls" symptom.
+            // Continuous does a swept test against static colliders instead
+            // of a single end-of-step point check, which is all this needs
+            // since world geometry is static and players (the only other
+            // thing in its path) are excluded via the IDamageable check
+            // above and move via CharacterController, not Rigidbody.
+            _rigidbody.collisionDetectionMode = CollisionDetectionMode.Continuous;
         }
 
         public override void OnStartClient()

@@ -97,8 +97,18 @@ namespace OffAngle.Movement.States
 
         private void ExitToLocomotion(MovementStateContext ctx)
         {
-            ctx.StateMachine.TransitionTo(
-                ctx.Controller.isGrounded ? MovementStateId.Grounded : MovementStateId.Airborne);
+            bool isGrounded = ctx.Controller.isGrounded;
+
+            // A driver (e.g. GrapplePullDriver arriving/releasing at a
+            // ground anchor) can end while already touching the ground,
+            // bypassing AirborneState.Tick()'s landing block entirely - this
+            // is the other "just touched down" point that needs to stamp a
+            // fresh bunny-hop grace window, same reasoning as that block -
+            // see GroundMomentum.OnLanded.
+            if (isGrounded)
+                GroundMomentum.OnLanded(ctx);
+
+            ctx.StateMachine.TransitionTo(isGrounded ? MovementStateId.Grounded : MovementStateId.Airborne);
         }
     }
 }

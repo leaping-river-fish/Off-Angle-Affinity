@@ -151,6 +151,13 @@ namespace OffAngle.Movement.States
                 // GroundedState.Enter() never sees.
                 ctx.RemainingJumps = ctx.EffectiveMaxJumps;
 
+                // Centralized bunny-hop grace stamp: same "single point for
+                // every landing" reasoning as RemainingJumps above - starts
+                // the window during which GroundedState/CrouchingState still
+                // gradually decay/steer excess momentum instead of
+                // hard-stopping it (see GroundMomentum.OnLanded).
+                GroundMomentum.OnLanded(ctx);
+
                 // A press queued the instant before landing (or stale from a
                 // tap-then-release while still airborne) must not leak into
                 // GroundedState's Tick() and fire a second, unwanted

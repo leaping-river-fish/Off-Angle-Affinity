@@ -111,15 +111,29 @@
 // ───────────────────────────────────────────────────────────────────────────
 // PHYSICS MODIFIERS PER STATE
 // ───────────────────────────────────────────────────────────────────────────
-//   Grounded    normal gravity (held with -2 press), full XZ input control
-//   Crouching   normal gravity, speed capped to CrouchSpeed, capsule height
-//               smoothly Lerp'd via CrouchAmount (see MovementCapsuleUtility)
+//   Grounded    normal gravity (held with -2 press), full XZ input control,
+//               walk/sprint speed cap instantly scaled by slope steepness +
+//               heading via SlopeUtility.GetSlopeSpeedMultiplier (uphill
+//               slows down, downhill speeds up - see
+//               MovementSettings.SlopeUphillSpeedMultiplier/
+//               SlopeDownhillSpeedMultiplier)
+//   Crouching   normal gravity, speed capped to CrouchSpeed (same slope
+//               scaling as Grounded), capsule height smoothly Lerp'd via
+//               CrouchAmount (see MovementCapsuleUtility)
 //   Airborne    full gravity × GravityMultiplier, AirControlMultiplier ×
 //               AirAcceleration × SpeedMultiplier
 //   Sliding     flat ground holds speed CONSTANT (no ambient friction);
-//               slope adds/removes speed via SlideSlopeAcceleration
-//               (downhill assists, uphill resists); steering input nudges
-//               direction without killing speed
+//               sliding meaningfully downhill accelerates continuously up to
+//               MaxPreservedSpeed (not capped at SlideMaxSpeed - see
+//               SlidingState's SPEED MODEL note); uphill resists via the same
+//               SlideSlopeAcceleration; steering input nudges direction
+//               without killing speed; move vector is solved to stay tangent
+//               to the slope (see SlidingState's GROUND CONTACT note) and any
+//               tiny leftover gap is folded into that same Move() call via
+//               SlopeUtility.MoveWithGroundSnap (MovementSettings.
+//               GroundSnapDistance) - together these are what prevent a fast
+//               downhill slide from bouncing between Sliding and Airborne
+//               every frame or two
 //   AbilityMovement fully delegated to the active IAbilityMovementDriver -
 //               no built-in gravity/friction/input model of its own
 //   WallRunning WallRunGravityScale × gravity, input locked to wall axis
@@ -168,40 +182,89 @@
 //                          (GrappleAutoReleaseOnObstruction), so the player
 //                          can't grind through/into geometry either.
 //   Wall kick vs double    Wall kick is free; wall run + jump consumes a charge.
-//   Bunny hop momentum     INTENTIONAL, not an exploit: GroundedState/
-//                          CrouchingState/AirborneState all preserve speed
-//                          above MovementSettings.NormalMaxSpeed (the global
-//                          momentum threshold - see GroundMomentum.cs)
-//                          instead of clamping it away. Ground decay
-//                          (Settings.GroundMomentumDecay) is deliberately
-//                          much stronger than air decay
-//                          (Settings.AirMomentumDecay), so chaining jumps to
-//                          stay airborne is always the strictly better
-//                          choice once above normal speed, and grounded
-//                          momentum bleeds off within roughly a second
-//                          instead of sliding indefinitely.
+//   Bunny hop momentum     INTENTIONAL, not an exploit: AirborneState always
+//                          preserves speed above MovementSettings.NormalMaxSpeed
+//                          (the global momentum threshold - see
+//                          GroundMomentum.cs) instead of clamping it away.
+//                          GroundedState/CrouchingState do too, but ONLY
+//                          within a short grace window after landing
+//                          (Settings.GroundMomentumGraceDuration, stamped by
+//                          GroundMomentum.OnLanded - see AirborneState.Tick()'s
+//                          landing block) or while ctx.OnIcyGround is true
+//                          (see MovementStateContext.OnIcyGround) - outside
+//                          both, ground momentum HARD-STOPS instantly instead
+//                          of decaying (see "Ground momentum outliving its
+//                          grace" below). A jump pressed the same Tick as
+//                          landing never even reaches the ground decay math
+//                          (PerformJump only overrides Velocity.y), so
+//                          precisely-timed hopping preserves speed almost
+//                          losslessly; hopping a little late still preserves
+//                          it via the grace window's gradual decay; waiting
+//                          too long snaps straight back to normal. This is
+//                          what makes chaining jumps the deliberate,
+//                          rewarded way to sustain speed instead of just
+//                          walking, while bounding worst-case speed growth
+//                          (see "Momentum steering never gains speed" below).
+//   Momentum steering      Steering (Settings.GroundMomentumSteerAcceleration /
+//   never gains speed      AirMomentumSteerAcceleration) only ever changes
+//                          the momentum vector's DIRECTION, never its
+//                          magnitude - see GroundMomentum.ApplyMomentumDecay's
+//                          DIRECTION VS MAGNITUDE note. An earlier version
+//                          added the steer vector directly onto velocity and
+//                          decayed the resulting (larger) magnitude, which
+//                          let holding a direction close to current travel
+//                          gain speed every Tick whenever steerAccel exceeded
+//                          decayRate (true in the air) - compounding without
+//                          bound across a grapple-into-bunny-hop chain and
+//                          letting a player go arbitrarily fast if the map
+//                          allowed enough jumps. Speed out of the momentum
+//                          system can now only hold or decay, never increase.
+//   Ground momentum        Outside the bunny-hop grace window (and not on
+//   outliving its grace    ice), GroundedState/CrouchingState treat excess
+//                          ground momentum exactly like normal walk/sprint
+//                          input - an instant snap to the normal cap, or to
+//                          zero with no input - rather than gradually
+//                          decaying it. This is the "player should stop
+//                          fully on the ground" behavior: gradual decay is
+//                          reserved for the deliberate skill window right
+//                          after landing (or for ice), not for casually
+//                          walking around at grapple/slide speed.
 //   Momentum cancelled     Below MovementSettings.NormalMaxSpeed, holding
 //   by normal input        movement input still directly sets velocity to
 //                          the walk/sprint/crouch cap (unchanged, fully
-//                          responsive feel). Above that threshold, input
-//                          only STEERS the momentum vector via acceleration
-//                          (Settings.GroundMomentumSteerAcceleration /
-//                          AirMomentumSteerAcceleration) - it never replaces
-//                          velocity outright, so holding a direction that
-//                          happens to roughly match the player's current
-//                          heading (the overwhelmingly common case right
-//                          after a grapple release or slide-jump) can no
-//                          longer instantly snap speed back down to normal.
+//                          responsive feel). Above that threshold and within
+//                          momentum-preserving conditions (always true in
+//                          air; grace window or ice on the ground), input
+//                          only STEERS the momentum vector's direction via
+//                          acceleration - it never replaces velocity
+//                          outright, so holding a direction that happens to
+//                          roughly match the player's current heading (the
+//                          overwhelmingly common case right after a grapple
+//                          release or slide-jump) can no longer instantly
+//                          snap speed back down to normal.
 //   Momentum on landing    Landing (or releasing input) at or below
 //   with no input          NormalMaxSpeed still stops instantly - normal
 //                          feel, unchanged. Bonus momentum above that
-//                          threshold (grapple launch, bunny-hop chain,
-//                          slide-jump) decays smoothly toward
-//                          NormalMaxSpeed via GroundMomentumDecay/
-//                          AirMomentumDecay instead of zeroing in one frame,
-//                          identically whether or not input is held - so
-//                          touching ground (or releasing input mid-air)
-//                          never erases the reward instantly.
+//                          threshold decays smoothly toward NormalMaxSpeed
+//                          (never zeroing in one frame, identically whether
+//                          or not input is held) for as long as momentum-
+//                          preserving conditions hold - always true in the
+//                          air (AirMomentumDecay), or on the ground within
+//                          the bunny-hop grace window/on ice
+//                          (GroundMomentumDecay) - so touching ground (or
+//                          releasing input mid-air) never erases the reward
+//                          instantly. Once grounded AND past the grace
+//                          window (and not on ice), it instead hard-stops -
+//                          see "Ground momentum outliving its grace" above.
+//   Future ice terrain     ctx.OnIcyGround (MovementStateContext) is a
+//                          reserved hook nothing sets yet. Once a future
+//                          terrain-detection system sets it true while
+//                          standing on an icy surface,
+//                          GroundMomentum.ShouldPreserveGroundMomentum()
+//                          treats the player as permanently within the
+//                          grace window - ice automatically and continuously
+//                          preserves ground momentum, with no other change
+//                          needed to GroundedState/CrouchingState/GroundMomentum.
 //
 // ───────────────────────────────────────────────────────────────────────────
 // MULTIPLAYER SYNC NOTES

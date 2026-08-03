@@ -27,12 +27,23 @@
 //
 // MOMENTUM PRESERVATION (see GroundMomentum.cs for the full model):
 //   Any time horizontal speed exceeds MovementSettings.NormalMaxSpeed (the
-//   walk/sprint cap - not a separate hardcoded number), Grounded/Crouching/
-//   Airborne all hand off to GroundMomentum's shared decay+steer routine
-//   instead of directly setting velocity to the input-driven target speed.
-//   This is what lets a grapple release, a slide-jump, or a bunny-hop chain
-//   carry speed across a state transition without normal movement input
-//   instantly cancelling it.
+//   walk/sprint cap - not a separate hardcoded number), Airborne always
+//   hands off to GroundMomentum's shared decay+steer routine instead of
+//   directly setting velocity to the input-driven target speed - this is
+//   what lets a grapple release, a slide-jump, or a bunny-hop chain carry
+//   speed across a state transition without normal movement input instantly
+//   cancelling it. Steering only ever changes DIRECTION, never magnitude -
+//   speed out of that routine can only hold or decay, never increase.
+//
+//   Grounded/Crouching do the same, but ONLY while
+//   GroundMomentum.ShouldPreserveGroundMomentum(ctx) is true - a short
+//   bunny-hop grace window stamped on landing (GroundMomentumGraceEndTime,
+//   tuned via GroundMomentumGraceDuration), or ctx.OnIcyGround (a reserved
+//   hook for a future ice terrain type - see that field's doc comment).
+//   Outside the grace window (and not on ice), excess ground momentum
+//   hard-stops instantly instead of gradually decaying - "stop fully" is
+//   the default; the grace window is what makes precisely-timed bunny
+//   hopping the rewarded exception, not the default.
 // =============================================================================
 
 using UnityEngine;
@@ -159,6 +170,35 @@ namespace OffAngle.Movement
         /// </summary>
         public float NextSlideAllowedTime;
 
+        /// <summary>
+        /// Time.time value until which GroundedState/CrouchingState still
+        /// gradually decay/steer excess ground momentum instead of hard-
+        /// stopping it - the bunny-hop timing window. Stamped by
+        /// GroundMomentum.OnLanded() at the moment of an actual landing
+        /// (see AirborneState.Tick() and AbilityMovementState.ExitToLocomotion),
+        /// to Time.time + Settings.GroundMomentumGraceDuration. Read via
+        /// GroundMomentum.ShouldPreserveGroundMomentum(). Deliberately NOT
+        /// refreshed by GroundedState/CrouchingState.Enter() - only a real
+        /// air-to-ground landing should grant a fresh window, or a player
+        /// could refresh it indefinitely (e.g. toggling crouch) without ever
+        /// leaving the ground.
+        /// </summary>
+        public float GroundMomentumGraceEndTime;
+
+        /// <summary>
+        /// RESERVED HOOK for a future ice terrain type - nothing sets this
+        /// yet. While true, GroundMomentum.ShouldPreserveGroundMomentum()
+        /// treats the player as permanently within the bunny-hop grace
+        /// window, so ground momentum is never hard-stopped: standing on ice
+        /// should automatically preserve momentum the way today's momentum
+        /// system already does for a limited time after landing. Intended to
+        /// be set every Tick by a future terrain-detection system (e.g. a
+        /// ground raycast checking a PhysicMaterial/tag) rather than latched,
+        /// so leaving the icy surface immediately restores normal grace/
+        /// hard-stop behavior.
+        /// </summary>
+        public bool OnIcyGround;
+
         // ------------------------------------------------------------------
         // Reusable movement-ability hooks — infrastructure for future
         // Affinity/perk/buff-driven movement (dashes, wall runs, grapples,
@@ -237,6 +277,17 @@ namespace OffAngle.Movement
         public float MomentumTolerance = 0.05f;
         [Tooltip("Hard safety ceiling (m/s) on any horizontal speed preserved by the momentum system, regardless of source (grapple, slide-jump, external forces, stacked abilities). Should sit comfortably above GrappleMaxPullSpeed and SlideMaxSpeed so it never interferes with normal ability use - it only exists to bound worst-case exploits/stacking.")]
         public float MaxPreservedSpeed = 60f;
+        [Tooltip("Seconds after landing during which GroundedState/CrouchingState still gradually decay/steer excess ground momentum (GroundMomentumDecay/GroundMomentumSteerAcceleration) instead of hard-stopping it immediately - the bunny-hop timing window. A jump pressed within this window (or one pressed the same Tick as landing, which never even reaches this check) chains speed forward; letting the window expire while still grounded snaps momentum straight down to normal walk/sprint speed. Ignored entirely while ctx.OnIcyGround is true - see MovementStateContext.OnIcyGround and GroundMomentum.ShouldPreserveGroundMomentum.")]
+        public float GroundMomentumGraceDuration = 0.15f;
+
+        [Header("Slope Movement")]
+        [Range(0f, 1f)]
+        [Tooltip("Speed multiplier applied when walking/sprinting/crouch-walking straight UPHILL at the steepest walkable angle (Controller.slopeLimit). Scales down linearly with slope angle and with how directly the wish direction points uphill - strafing across a slope is unaffected. 1 = uphill never slows you down. Applied as an instant cap scale (see SlopeUtility.GetSlopeSpeedMultiplier), matching the same responsive feel as flat-ground walk/sprint - does not affect momentum-preserving speed above NormalMaxSpeed or SlidingState (which has its own slope model via SlideSlopeAcceleration).")]
+        public float SlopeUphillSpeedMultiplier = 0.7f;
+        [Tooltip("Speed multiplier applied when walking/sprinting/crouch-walking straight DOWNHILL at the steepest walkable angle. Same angle/direction scaling as SlopeUphillSpeedMultiplier. 1 = downhill never speeds you up; values above 1 grant a downhill speed boost.")]
+        public float SlopeDownhillSpeedMultiplier = 1.3f;
+        [Tooltip("Maximum gap (m) between the capsule's bottom and the ground below it that Grounded/Crouching/Sliding will automatically close each Tick via an extra CharacterController.Move() call - see SlopeUtility.SnapToGround. This is what keeps a fast downhill slide (or normal ground movement over uneven/faceted terrain) glued to the surface instead of intermittently losing Controller.isGrounded for a frame and visibly bouncing into AirborneState and back (the \"bumpy slide\" symptom). Set to 0 to disable snapping entirely. Keep well below CharacterController.stepOffset so this only ever corrects tiny approximation error, never silently teleports the player down a real step or ledge.")]
+        public float GroundSnapDistance = 0.3f;
 
         [Header("Jumping")]
         [Tooltip("Apex height in meters. Drives jump velocity via v = sqrt(2 * h * g).")]
@@ -273,9 +324,9 @@ namespace OffAngle.Movement
         [Header("Slide / Crouch")]
         [Tooltip("Horizontal speed (m/s) required at Left Ctrl press to enter Slide instead of Crouch. Must be greater than SlideMinSpeed, or the slide will end on the very first Tick. Tune in playtesting.")]
         public float SlideEntrySpeedThreshold = 4f;
-        [Tooltip("Maximum seconds a single slide can last before it automatically ends (independent of speed).")]
+        [Tooltip("Maximum seconds a single slide can last before it automatically ends (independent of speed). Does NOT apply while sliding meaningfully downhill - see SlidingState's DURATION note - only flat ground and uphill slides are bound by this timer.")]
         public float SlideDuration            = 1.2f;
-        [Tooltip("Hard speed ceiling for sliding, in m/s. Entry speed above this is clamped down; entry speed below this is preserved as-is (see SlidingState.Enter).")]
+        [Tooltip("Hard speed ceiling for sliding, in m/s. Entry speed above this is clamped down; entry speed below this is preserved as-is (see SlidingState.Enter). Does NOT cap sliding meaningfully downhill - that instead accelerates continuously up to MaxPreservedSpeed, so a long slope keeps rewarding speed instead of plateauing here almost immediately. Applies to flat ground and uphill sliding.")]
         public float SlideMaxSpeed            = 9f;
         [Tooltip("Horizontal speed (m/s) below which an active slide automatically ends. Should be lower than SlideEntrySpeedThreshold.")]
         public float SlideMinSpeed            = 2.5f;

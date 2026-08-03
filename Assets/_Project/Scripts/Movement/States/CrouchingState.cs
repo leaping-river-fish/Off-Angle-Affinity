@@ -46,6 +46,12 @@
 //   prevents a stale-flag bug: if this state didn't consume it, a jump press
 //   while crouched would sit pending and fire as a surprise jump the instant
 //   the player stands up.
+//
+// SLOPE-AWARE SPEED:
+//   CrouchSpeed is instantly scaled by slope steepness/heading before being
+//   passed to GroundMomentum, same model as GroundedState - see
+//   SlopeUtility.GetSlopeSpeedMultiplier and
+//   MovementSettings.SlopeUphillSpeedMultiplier/SlopeDownhillSpeedMultiplier.
 // =============================================================================
 
 using UnityEngine;
@@ -118,19 +124,32 @@ namespace OffAngle.Movement.States
             // elsewhere in the sprint-speed logic.
             Vector3 wishDir = GroundMomentum.GetWishDirection(ctx, out float inputMag);
 
+            // Slope-aware speed: same instant cap scaling as GroundedState -
+            // see SlopeUtility.GetSlopeSpeedMultiplier.
+            float crouchSpeed = ctx.Settings.CrouchSpeed * ctx.SpeedMultiplier;
+            if (inputMag > 0.001f)
+                crouchSpeed *= SlopeUtility.GetSlopeSpeedMultiplier(ctx, wishDir.normalized);
+
             // Same momentum preservation as GroundedState - a fast
             // crouch-jump landing (or crouching mid-slide-chain) above
-            // MovementSettings.NormalMaxSpeed should not instantly slam down
-            // to CrouchSpeed. See GroundMomentum.cs.
+            // MovementSettings.NormalMaxSpeed decays gradually instead of
+            // instantly slamming down to CrouchSpeed, but ONLY within the
+            // bunny-hop grace window after landing (or on ice) - see
+            // GroundMomentum.ShouldPreserveGroundMomentum(). Outside that,
+            // this hard-stops to CrouchSpeed exactly like normal crouch-walk
+            // input. See GroundMomentum.cs.
             Vector3 horizontalVelocity = GroundMomentum.ComputeHorizontalVelocity(
-                ctx, wishDir, inputMag, ctx.Settings.CrouchSpeed * ctx.SpeedMultiplier, deltaTime);
+                ctx, wishDir, inputMag, crouchSpeed, deltaTime);
 
             // Same ground-press constant as GroundedState - required to keep
             // CharacterController.isGrounded stable on flat surfaces.
             ctx.Velocity = new Vector3(horizontalVelocity.x, -2f, horizontalVelocity.z);
 
             // ── 5. Move ───────────────────────────────────────────────────
-            ctx.Controller.Move(ctx.Velocity * deltaTime);
+            // Folds a ground-snap correction into this SAME Move() call - see
+            // SlopeUtility.MoveWithGroundSnap for why it must not be a
+            // separate Move() call (it would corrupt Controller.velocity).
+            SlopeUtility.MoveWithGroundSnap(ctx, ctx.Velocity * deltaTime, ctx.Settings.GroundSnapDistance);
 
             // ── 6. Exit once fully stood ─────────────────────────────────────
             if (ctx.CrouchAmount <= 0f)

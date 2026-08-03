@@ -107,6 +107,17 @@ namespace OffAngle.Networking
         /// <summary>Raised on every peer whenever any ammo SyncVar changes, including the initial seed. HUD subscribes here.</summary>
         public event Action<int, int, bool> OnAmmoChanged;
 
+        /// <summary>
+        /// The Gun currently equipped through this controller, or null if none.
+        /// Guns are instantiated/destroyed at runtime by PlayerWeaponEquipper
+        /// (see SetGun), so there's no single fixed weapon Transform a prefab
+        /// field could point to ahead of time - purely cosmetic systems that
+        /// need to track wherever the current weapon visually points/sits
+        /// (e.g. BeamRenderer's muzzle origin) should read this every frame
+        /// instead of caching a Transform reference.
+        /// </summary>
+        public Gun CurrentGun => _gun;
+
         // ------------------------------------------------------------------
         // Lifecycle — subscribe only for the owning client
         // ------------------------------------------------------------------
@@ -456,7 +467,14 @@ namespace OffAngle.Networking
             ShotContext ctx = new ShotContext(origin, direction, _gun.Data, base.NetworkObject, transform.root, this, heldDuration);
             BeamTickResult result = beam.Tick(ctx);
 
-            RpcBeamVisualUpdate(origin, result.EndPoint, result.DidHit);
+            // Hit detection stays tied to the trusted camera-based origin/
+            // direction (see AUTHORITY NOTE above), but the visual beam
+            // should appear to come from the gun, not the player's eyes -
+            // same split HitscanShotBehavior already uses for tracers
+            // (ctx.Origin for the raycast, ctx.Host.MuzzlePosition for the
+            // drawn line's start point).
+            Vector3 muzzlePosition = ((IShotBehaviorHost)this).MuzzlePosition;
+            RpcBeamVisualUpdate(muzzlePosition, result.EndPoint, result.DidHit);
             ConsumeBeamAmmo(beam.AmmoPerTick);
         }
 
