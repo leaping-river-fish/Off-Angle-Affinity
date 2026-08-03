@@ -66,8 +66,10 @@ namespace OffAngle.Movement
             Register(new SlidingState());
             Register(new AbilityMovementState());
 
+            // ── Phase 3: fully implemented states ────────────────────────
+            Register(new WallRunningState());
+
             // ── Phase 3+: uncomment each line when the class is created ──
-            // Register(new WallRunningState());
             // Register(new GrapplingState());
             // Register(new ZiplineState());
 
@@ -152,6 +154,15 @@ namespace OffAngle.Movement
         /// <summary>True while SlidingState is the active state.</summary>
         public bool IsSliding => CurrentStateId == MovementStateId.Sliding;
 
+        /// <summary>True while WallRunningState is the active state.</summary>
+        public bool IsWallRunning => CurrentStateId == MovementStateId.WallRunning;
+
+        /// <summary>
+        /// Which side the active wall run is on, or None when not wall running.
+        /// CameraWallRunEffects reads this for tilt sign - see WallRunningState.
+        /// </summary>
+        public WallSide WallRunSide => _ctx?.WallRunSide ?? WallSide.None;
+
         /// <summary>True while an IAbilityMovementDriver is actively driving movement.</summary>
         public bool IsInAbilityMovement => CurrentStateId == MovementStateId.AbilityMovement;
 
@@ -210,6 +221,17 @@ namespace OffAngle.Movement
             // so death/respawn never leaves a lingering slide lockout.
             _ctx.SlideTimer = 0f;
             _ctx.NextSlideAllowedTime = 0f;
+
+            // Wall-run bookkeeping: clear identity / timer / cooldown so a
+            // death mid-wall-run never leaves a lingering same-wall lockout
+            // or a half-elapsed duration on the fresh spawn.
+            _ctx.WallRunLastCollider = null;
+            _ctx.WallRunLastContactPoint = Vector3.zero;
+            _ctx.WallRunElapsedTime = 0f;
+            _ctx.WallRunExitTime = 0f;
+            _ctx.WallRunExitLockEndTime = 0f;
+            _ctx.WallRunSide = WallSide.None;
+            _ctx.WallVerticalInput = 0f;
 
             // Ability-driven movement and any temporary modifiers must not
             // survive a death. Interrupting the driver (rather than just
@@ -323,6 +345,18 @@ namespace OffAngle.Movement
         public void SetInputLocked(bool locked)
         {
             if (_ctx != null) _ctx.InputLocked = locked;
+        }
+
+        /// <summary>
+        /// Sets the vertical wall-run input hook (expected range [-1, 1]).
+        /// Reserved for future Affinity perks that enable upward/downward
+        /// wall movement - see MovementStateContext.WallVerticalInput and
+        /// MovementSettings.WallVerticalMoveSpeed. Default player never
+        /// calls this; pass 0 to restore horizontal-only wall running.
+        /// </summary>
+        public void SetWallVerticalInput(float value)
+        {
+            if (_ctx != null) _ctx.WallVerticalInput = Mathf.Clamp(value, -1f, 1f);
         }
 
         /// <summary>Grants extra jump charges (adds to Settings.MaxJumps via MovementStateContext.EffectiveMaxJumps). Callers should pair this with RemoveMaxJumpsBonus when the source buff/perk ends.</summary>

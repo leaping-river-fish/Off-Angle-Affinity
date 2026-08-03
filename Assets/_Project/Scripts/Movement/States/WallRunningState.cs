@@ -1,0 +1,269 @@
+// =============================================================================
+// WallRunningState — wall-parallel locomotion with curve-aware contact tracking,
+// free wall-kick, and per-wall duration. Phase 3: implemented.
+//
+// ENTERING THIS STATE:
+//   From AirborneState.Tick() (after Move) when a qualifying wall is found at
+//   entry speed (see WallDetection.MeetsEntrySpeed) and neither the universal
+//   WallJumpExitLock nor the same-wall reattach cooldown is blocking.
+//   Vertical velocity is zeroed on enter so the player sticks at the height
+//   they attached - default wall run is horizontal only.
+//
+// TRANSITIONS OUT:
+//   JumpPending                         → Airborne  (tutorial-style impulse:
+//                                                     preserve XZ, zero Y, add
+//                                                     up + look-scaled side kick)
+//   Tangential speed < WallRunMinSpeed  → Airborne
+//   WallRunElapsedTime >= WallRunDuration → Airborne
+//   Lost wall contact                   → Airborne  (soft exit)
+//   Controller.isGrounded               → Grounded
+//
+// EXIT LOCK:
+//   Exit() stamps WallRunExitLockEndTime (blocks ALL wall entry briefly) and
+//   WallRunExitTime (same-wall cooldown). Matches WallRunningAdvanced's
+//   exitingWall timer without Rigidbody/DOTween.
+// =============================================================================
+
+using UnityEngine;
+
+namespace OffAngle.Movement.States
+{
+    public class WallRunningState : IMovementState
+    {
+        public MovementStateId StateId => MovementStateId.WallRunning;
+
+        private bool     _active;
+        private WallSide _side;
+        private Vector3  _smoothedNormal;
+        private Vector3  _tangent;
+
+        // Max meters of wall-gap closed per Tick when hugging curved geometry.
+        private const float MaxWallHugCorrection = 0.2f;
+
+        // Minimum side peel as a fraction of WallJumpOutwardForce when look
+        // is along/into the wall - enough to clear the surface, not enough to
+        // override forward momentum.
+        private const float MinWallJumpSideFraction = 0.25f;
+
+        // ------------------------------------------------------------------
+        // IMovementState implementation
+        // ------------------------------------------------------------------
+
+        public void Enter(MovementStateContext ctx)
+        {
+            _active = false;
+
+            if (!WallDetection.TryFindWall(ctx, WallSide.None, out WallHit wall))
+                return;
+
+            _active = true;
+            _side = wall.Side;
+            _smoothedNormal = wall.Normal;
+            ctx.WallRunSide = _side;
+
+            Vector3 travelHint = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            if (travelHint.sqrMagnitude < 0.0001f)
+                travelHint = ctx.PlayerTransform.forward;
+
+            _tangent = WallDetection.GetWallTangent(wall.Normal, travelHint);
+
+            if (!WallDetection.IsSameWall(ctx, wall.Collider, wall.Point))
+                ctx.WallRunElapsedTime = 0f;
+
+            ctx.WallRunLastCollider = wall.Collider;
+            ctx.WallRunLastContactPoint = wall.Point;
+
+            float tangentialSpeed = Vector3.Dot(ctx.Velocity, _tangent);
+            if (tangentialSpeed < 0f)
+            {
+                _tangent = -_tangent;
+                tangentialSpeed = -tangentialSpeed;
+            }
+
+            float maxSpeed = ctx.Settings.WallRunMaxSpeed * ctx.SpeedMultiplier;
+            tangentialSpeed = Mathf.Max(tangentialSpeed, ctx.Settings.WallRunEntrySpeed);
+            if (tangentialSpeed > maxSpeed)
+                tangentialSpeed = maxSpeed;
+
+            Vector3 runVelocity = _tangent * tangentialSpeed;
+            ctx.Velocity = new Vector3(runVelocity.x, 0f, runVelocity.z);
+
+            float desiredGap = ctx.Controller.radius + ctx.Controller.skinWidth;
+            float gapError = wall.Distance - desiredGap;
+            if (Mathf.Abs(gapError) > 0.001f)
+                ctx.Controller.Move(-wall.Normal * gapError);
+        }
+
+        public void Tick(MovementStateContext ctx, float deltaTime)
+        {
+            if (!_active)
+            {
+                ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
+                return;
+            }
+
+            if (ctx.InputLocked)
+                ctx.JumpPending = false;
+
+            // ── 1. Free wall-kick ──────────────────────────────────────────
+            if (ctx.JumpPending)
+            {
+                ctx.JumpPending = false;
+                PerformWallJump(ctx);
+                return;
+            }
+
+            // ── 2. Grounded fallthrough ───────────────────────────────────
+            if (ctx.Controller.isGrounded)
+            {
+                ctx.Velocity.y = 0f;
+                ctx.RemainingJumps = ctx.EffectiveMaxJumps;
+                GroundMomentum.OnLanded(ctx);
+                ctx.StateMachine.TransitionTo(MovementStateId.Grounded);
+                return;
+            }
+
+            // ── 3. Re-detect wall ─────────────────────────────────────────
+            if (!WallDetection.TryFindWall(ctx, _side, _smoothedNormal, out WallHit wall))
+            {
+                SoftExitLostContact(ctx);
+                return;
+            }
+
+            _side = wall.Side;
+            ctx.WallRunSide = _side;
+
+            // ── 4. Same-wall / duration bookkeeping ───────────────────────
+            if (!WallDetection.IsSameWall(ctx, wall.Collider, wall.Point))
+                ctx.WallRunElapsedTime = 0f;
+
+            ctx.WallRunLastCollider = wall.Collider;
+            ctx.WallRunLastContactPoint = wall.Point;
+            ctx.WallRunElapsedTime += deltaTime;
+
+            // ── 5. Smooth normal + continuous tangent ─────────────────────
+            float maxRadians = ctx.Settings.WallNormalSmoothingSpeed * Mathf.Deg2Rad * deltaTime;
+            _smoothedNormal = Vector3.RotateTowards(
+                _smoothedNormal, wall.Normal, maxRadians, 0f).normalized;
+
+            Vector3 newTangent = WallDetection.GetWallTangent(_smoothedNormal, _tangent);
+            if (newTangent.sqrMagnitude > 0.0001f)
+                _tangent = newTangent;
+
+            // ── 6. Speed + exit checks ────────────────────────────────────
+            float tangentialSpeed = Vector3.Dot(ctx.Velocity, _tangent);
+            if (tangentialSpeed < 0f)
+            {
+                _tangent = -_tangent;
+                tangentialSpeed = -tangentialSpeed;
+            }
+
+            float maxSpeed = ctx.Settings.WallRunMaxSpeed * ctx.SpeedMultiplier;
+            float accel = ctx.Settings.WallRunAcceleration * ctx.SpeedMultiplier;
+            tangentialSpeed = Mathf.MoveTowards(tangentialSpeed, maxSpeed, accel * deltaTime);
+
+            bool tooSlow = tangentialSpeed < ctx.Settings.WallRunMinSpeed;
+            bool timedOut = ctx.WallRunElapsedTime >= ctx.Settings.WallRunDuration;
+            if (tooSlow || timedOut)
+            {
+                Vector3 exitHorizontal = _tangent * tangentialSpeed;
+                ctx.Velocity = new Vector3(exitHorizontal.x, 0f, exitHorizontal.z);
+                ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
+                return;
+            }
+
+            ctx.Velocity = _tangent * tangentialSpeed;
+            ApplyWallMotion(ctx, deltaTime, wall);
+        }
+
+        public void FixedTick(MovementStateContext ctx, float fixedDeltaTime) { }
+
+        public void Exit(MovementStateContext ctx)
+        {
+            if (_active)
+            {
+                ctx.WallRunExitTime = Time.time;
+                ctx.WallRunExitLockEndTime = Time.time + ctx.Settings.WallJumpExitLock;
+            }
+
+            ctx.WallRunSide = WallSide.None;
+            _active = false;
+        }
+
+        // ------------------------------------------------------------------
+        // Private helpers
+        // ------------------------------------------------------------------
+
+        private void ApplyWallMotion(MovementStateContext ctx, float deltaTime, WallHit wall)
+        {
+            float tangentialSpeed = Mathf.Max(0f, Vector3.Dot(ctx.Velocity, _tangent));
+            Vector3 horizontal = _tangent * tangentialSpeed;
+
+            float vertical;
+            if (Mathf.Abs(ctx.WallVerticalInput) > 0.001f)
+            {
+                vertical = ctx.WallVerticalInput * ctx.Settings.WallVerticalMoveSpeed * ctx.SpeedMultiplier;
+            }
+            else if (ctx.Settings.WallRunGravityScale > 0f)
+            {
+                vertical = ctx.Velocity.y
+                    - ctx.Settings.Gravity * ctx.Settings.WallRunGravityScale * ctx.GravityMultiplier * deltaTime;
+            }
+            else
+            {
+                vertical = 0f;
+            }
+
+            ctx.Velocity = new Vector3(horizontal.x, vertical, horizontal.z);
+
+            Vector3 motion = ctx.Velocity * deltaTime;
+
+            float desiredGap = ctx.Controller.radius + ctx.Controller.skinWidth;
+            float gapError = wall.Distance - desiredGap;
+            float hug = Mathf.Clamp(gapError, -MaxWallHugCorrection, MaxWallHugCorrection);
+            if (Mathf.Abs(hug) > 0.001f)
+                motion += -_smoothedNormal * hug;
+
+            ctx.Controller.Move(motion);
+        }
+
+        private void SoftExitLostContact(MovementStateContext ctx)
+        {
+            Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            float speed = horizontal.magnitude;
+            float softCap = ctx.Settings.NormalMaxSpeed * ctx.SpeedMultiplier;
+
+            if (speed > softCap && speed > 0.001f)
+                horizontal = horizontal * (softCap / speed);
+
+            ctx.Velocity = new Vector3(horizontal.x, 0f, horizontal.z);
+            ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
+        }
+
+        private void PerformWallJump(MovementStateContext ctx)
+        {
+            // Tutorial impulse model (WallRunningAdvanced): preserve horizontal
+            // XZ, zero Y, then add up + outward side force. Side force scales
+            // with how much the camera looks away from the wall so looking
+            // along the wall continues forward instead of always kicking out.
+            ctx.Velocity = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+
+            Vector3 lookFlat = ctx.PlayerTransform.forward;
+            lookFlat.y = 0f;
+            if (lookFlat.sqrMagnitude > 0.0001f)
+                lookFlat.Normalize();
+            else
+                lookFlat = _tangent;
+
+            // 0 = looking along/into wall, 1 = looking straight away from it.
+            float lookAway = Mathf.Clamp01(Vector3.Dot(lookFlat, _smoothedNormal));
+            float minSide = ctx.Settings.WallJumpOutwardForce * MinWallJumpSideFraction;
+            float sideForce = Mathf.Lerp(minSide, ctx.Settings.WallJumpOutwardForce, lookAway);
+
+            ctx.Velocity += Vector3.up * ctx.Settings.WallJumpUpwardForce
+                          + _smoothedNormal * sideForce;
+
+            ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
+        }
+    }
+}

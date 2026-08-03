@@ -237,6 +237,73 @@ namespace OffAngle.Movement
         /// on an early exit. See IAbilityMovementDriver.cs.
         /// </summary>
         public IAbilityMovementDriver ActiveAbilityDriver;
+
+        // ------------------------------------------------------------------
+        // Wall-run bookkeeping — owned by WallRunningState / AirborneState's
+        // entry gate. Cleared by MovementStateMachine.ResetTransientInput()
+        // on respawn. See WallDetection.cs for identity rules.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Collider of the wall surface the player most recently wall-ran on
+        /// (or is currently wall-running on). Used by WallDetection.IsSameWall
+        /// so reattaching to / transferring across the same continuous collider
+        /// does NOT reset WallRunElapsedTime - only a genuinely different wall
+        /// does. Cleared on respawn.
+        /// </summary>
+        public Collider WallRunLastCollider;
+
+        /// <summary>
+        /// World-space contact point paired with WallRunLastCollider. Lets
+        /// connected-but-separate colliders (two angled panels butted
+        /// together) still count as the same wall when the new contact is
+        /// within Settings.SameWallContactTolerance - see WallDetection.IsSameWall.
+        /// </summary>
+        public Vector3 WallRunLastContactPoint;
+
+        /// <summary>
+        /// Seconds elapsed on the CURRENT wall surface. Reset only when the
+        /// player transfers to a genuinely different wall (see
+        /// WallDetection.IsSameWall). Compared against Settings.WallRunDuration
+        /// each Tick by WallRunningState.
+        /// </summary>
+        public float WallRunElapsedTime;
+
+        /// <summary>
+        /// Time.time stamped by WallRunningState.Exit() for every exit path
+        /// (jump, timeout, min-speed, lost contact). AirborneState uses this
+        /// + Settings.WallReattachCooldown to block immediate reattachment to
+        /// the SAME wall after jumping away - a different wall is never gated
+        /// by this field alone (see WallRunExitLockEndTime for the universal
+        /// post-exit lock).
+        /// </summary>
+        public float WallRunExitTime;
+
+        /// <summary>
+        /// Time.time until which AirborneState refuses ALL wall-run entry
+        /// (any wall). Stamped by WallRunningState.Exit() to
+        /// Time.time + Settings.WallJumpExitLock - the tutorial "exitingWall"
+        /// window that makes wall jumps feel clean instead of instantly
+        /// re-sticking. Cleared on respawn.
+        /// </summary>
+        public float WallRunExitLockEndTime;
+
+        /// <summary>
+        /// Which side the active wall run is on (Left/Right), or None when
+        /// not wall running. Set by WallRunningState for presentation
+        /// (CameraWallRunEffects tilt sign); cleared on Exit / respawn.
+        /// </summary>
+        public WallSide WallRunSide;
+
+        /// <summary>
+        /// Reserved hook for future Affinity perks that enable vertical wall
+        /// movement. Range expected [-1, 1]: negative = down the wall,
+        /// positive = up, 0 = default horizontal-only wall run (gravity via
+        /// WallRunGravityScale still applies). Mutate ONLY through
+        /// MovementStateMachine.SetWallVerticalInput so Affinity code never
+        /// reaches into this context directly. Nothing sets this yet.
+        /// </summary>
+        public float WallVerticalInput;
     }
 
     // World scale reference: 1 Unity unit = 1 meter. Defaults below match the
@@ -357,10 +424,37 @@ namespace OffAngle.Movement
         public LayerMask StandCheckMask = ~0;
 
         [Header("Wall Run")]
-        [Tooltip("Fraction of normal gravity applied during wall run (0 = floaty, 1 = full fall).")]
-        public float WallRunGravityScale = 0.2f;      // PHASE 3
-        public float WallRunMinSpeed     = 3f;         // PHASE 3: exit if speed drops below this
-        public float WallRunDuration     = 2f;         // PHASE 3: max seconds per wall surface
+        [Tooltip("Horizontal speed (m/s) required to ENTER a wall run from Airborne. Also needs a modest along-wall component (see WallDetection.MeetsEntrySpeed) so head-on rams fail. Should be >= WallRunMinSpeed.")]
+        public float WallRunEntrySpeed = 3.5f;
+        [Tooltip("Wall-tangential speed (m/s) below which an active wall run ends and the player falls. Should be lower than WallRunEntrySpeed.")]
+        public float WallRunMinSpeed = 2.5f;
+        [Tooltip("Maximum seconds a wall run can last on a SINGLE wall surface before the player detaches. Transfers to a genuinely different wall reset this timer; reattaching to the same wall (or following a curve on the same collider) does NOT.")]
+        public float WallRunDuration = 2.5f;
+        [Tooltip("Acceleration (m/s²) applied along the wall-tangent direction while wall running, toward WallRunMaxSpeed.")]
+        public float WallRunAcceleration = 14f;
+        [Tooltip("Hard speed ceiling (m/s) for wall-tangential speed while wall running. Entry speed above this is clamped down; below this, entry is floored to WallRunEntrySpeed so attachment feels committed.")]
+        public float WallRunMaxSpeed = 10f;
+        [Range(0f, 1f)]
+        [Tooltip("Fraction of normal gravity applied during wall run while WallVerticalInput is 0. 0 = stuck at attach height (recommended default). Raise above 0 only if you want a slow downward drift.")]
+        public float WallRunGravityScale = 0f;
+        [Tooltip("Detection reach (m) from the capsule center for left/right/into-wall casts. Slightly larger than Controller.radius; too large keeps you stuck past wall ends and flings you along the wall.")]
+        public float WallDetectionDistance = 0.95f;
+        [Tooltip("Maximum degrees a surface normal may deviate from vertical (90° from world-up) and still count as a wall. Filters floors, ceilings, and shallow ramps. 25 ≈ walls within ~65–115° of world-up.")]
+        public float WallAngleTolerance = 25f;
+        [Tooltip("Max distance (m) between consecutive wall contacts that still count as the SAME wall when the collider identity differs (e.g. two angled panels butted together). Same-collider contacts always count as the same wall regardless of this value.")]
+        public float SameWallContactTolerance = 1.5f;
+        [Tooltip("Seconds after leaving a wall run during which reattaching to the SAME wall is refused. A different wall is never gated by this alone - see WallJumpExitLock for the short universal post-exit block.")]
+        public float WallReattachCooldown = 0.25f;
+        [Tooltip("Seconds after ANY wall-run exit during which NO wall run may begin (any wall). Tutorial-style exitingWall lock - keeps wall jumps from instantly re-sticking. Keep short so wall-to-wall transfers after a kick still work.")]
+        public float WallJumpExitLock = 0.2f;
+        [Tooltip("Max degrees/second the tracked wall normal may rotate toward a newly sampled hit normal. Smooths faceted/curved meshes so wall-run direction and wall-jump do not jitter or launch the player.")]
+        public float WallNormalSmoothingSpeed = 540f;
+        [Tooltip("Horizontal launch speed (m/s) used as a floor for wall-jump velocity. Jump direction follows camera look (player forward); a small outward peel only applies if look is nearly into/along the wall.")]
+        public float WallJumpOutwardForce = 10f;
+        [Tooltip("Upward impulse (m/s) on Jump during a wall run. Independent of JumpVelocity so wall kicks feel like a powerful kick-off.")]
+        public float WallJumpUpwardForce = 9f;
+        [Tooltip("Vertical speed (m/s) applied along the wall when ctx.WallVerticalInput is non-zero (future Affinity perk hook). Default player never sets WallVerticalInput, so this has no effect until a perk enables it via MovementStateMachine.SetWallVerticalInput.")]
+        public float WallVerticalMoveSpeed = 4f;
 
         [Header("Grapple")]
         [Tooltip("Speed (m/s) the player is instantly set to toward the grapple anchor point every Tick while being pulled - no ramp-up, this is a hard snap-to-speed tow, not an acceleration.")]

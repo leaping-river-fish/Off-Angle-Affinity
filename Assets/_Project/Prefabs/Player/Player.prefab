@@ -76,7 +76,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.BeamRenderer
   _playerNetworkObject: {fileID: 0}
-  _beamOrigin: {fileID: 791006622424047541}
+  _weaponController: {fileID: 0}
+  _fallbackBeamOrigin: {fileID: 0}
   _material: {fileID: 0}
   _color: {r: 1, g: 0.05, b: 0.05, a: 1}
   _width: 0.03
@@ -1510,9 +1511,21 @@ MonoBehaviour:
     StandCheckMask:
       serializedVersion: 2
       m_Bits: 55
-    WallRunGravityScale: 0.2
-    WallRunMinSpeed: 3
+    WallRunEntrySpeed: 6
+    WallRunMinSpeed: 4
     WallRunDuration: 2
+    WallRunAcceleration: 14
+    WallRunMaxSpeed: 12
+    WallRunGravityScale: 0.2
+    WallDetectionDistance: 0.95
+    WallAngleTolerance: 25
+    SameWallContactTolerance: 1.5
+    WallReattachCooldown: 0.25
+    WallJumpExitLock: 0.2
+    WallNormalSmoothingSpeed: 540
+    WallJumpOutwardForce: 11
+    WallJumpUpwardForce: 9
+    WallVerticalMoveSpeed: 4
     GrappleMaxPullSpeed: 20
     GrappleReleaseDistance: 2
     GrappleMaxDuration: 3
@@ -2088,6 +2101,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2397464270072699754}
   - component: {fileID: 1195301071428451}
+  - component: {fileID: 1825543966681606798}
   m_Layer: 0
   m_Name: Camera Pivot
   m_TagString: Untagged
@@ -2130,6 +2144,23 @@ MonoBehaviour:
   _stateMachine: {fileID: 996271417525511594}
   _crouchPivotY: 0.9
   _slideTransitionDuration: 0.12
+--- !u!114 &1825543966681606798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5155480573157171549}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a22ac82d43cf155469e5cbbb8d1525f7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Player.CameraWallRunEffects
+  _stateMachine: {fileID: 996271417525511594}
+  _cameraController: {fileID: 0}
+  _wallRunFov: 90
+  _defaultFovOverride: 0
+  _tiltDegrees: 5
 --- !u!1 &5984356091257518664
 GameObject:
   m_ObjectHideFlags: 0
@@ -2794,10 +2825,13 @@ MonoBehaviour:
   _playerRoot: {fileID: 8824692802582119726}
   _pitchTarget: {fileID: 2397464270072699754}
   _inputReader: {fileID: 0}
+  _camera: {fileID: 0}
   _sensitivity: 0.15
   _invertY: 0
   _maxPitchUp: 89
   _maxPitchDown: 89
+  _fovBlendDuration: 0.25
+  _rollBlendDuration: 0.25
 --- !u!1 &8241540748366850093
 GameObject:
   m_ObjectHideFlags: 0

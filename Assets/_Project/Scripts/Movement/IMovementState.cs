@@ -35,8 +35,9 @@
 //     Feels like a launch pad. Do not zero XZ in SlidingState.Exit().
 //
 //   Jump → WallRun
-//     AirborneState.FixedTick() detects qualifying wall via raycasts.
-//     Auto-enters WallRunningState if speed >= WallRunMinSpeed.
+//     AirborneState.FixedTick() detects qualifying wall via WallDetection.
+//     Auto-enters WallRunningState if wall-tangential speed >= WallRunEntrySpeed
+//     (and same-wall reattach cooldown is not blocking).
 //
 //   WallRun → Jump (wall kick)
 //     Exit velocity = wall-perpendicular direction × kick speed
@@ -136,7 +137,12 @@
 //               every frame or two
 //   AbilityMovement fully delegated to the active IAbilityMovementDriver -
 //               no built-in gravity/friction/input model of its own
-//   WallRunning WallRunGravityScale × gravity, input locked to wall axis
+//   WallRunning WallRunGravityScale × gravity (or WallVerticalMoveSpeed ×
+//               ctx.WallVerticalInput when a future Affinity perk drives
+//               vertical wall movement), locomotion locked to the wall-
+//               tangent axis, free wall-kick on Jump (does not consume
+//               RemainingJumps). Entered only from AirborneState.FixedTick
+//               via WallDetection - see WallRunningState.cs
 //   Grappling   implemented as GrapplePullDriver + GrappleWallHoldDriver
 //               (Scripts/Movement/Grapple/) driven through AbilityMovement,
 //               not a dedicated state. The pull instantly snaps to
@@ -161,8 +167,10 @@
 // ───────────────────────────────────────────────────────────────────────────
 // EDGE CASES TO DESIGN AGAINST (implement mitigations in each state)
 // ───────────────────────────────────────────────────────────────────────────
-//   Infinite wall run      Per-wall cooldown tag on collider. Must touch ground
-//                          to re-enter wall run on the same surface.
+//   Infinite wall run      Per-wall WallRunDuration timer keyed to collider
+//                          identity (WallDetection.IsSameWall). Same-wall
+//                          reattach cooldown after exit. Duration resets only
+//                          on a genuinely different wall.
 //   Slope slide exploit    Apply terminal velocity cap. Uphill decelerates;
 //                          downhill accelerates up to cap.
 //   Grapple spam           Owner-local + server-revalidated cooldown between
@@ -330,20 +338,17 @@ namespace OffAngle.Movement
         /// </summary>
         AbilityMovement,
 
-        // ── Phase 3: enum slots reserved ─────────────────────────────────
-        // These will likely be implemented as IAbilityMovementDriver classes
-        // driven through AbilityMovement rather than as dedicated
-        // MovementStateId entries - kept here as placeholders until that
-        // decision is made concrete.
+        // ── Phase 3: WallRunning implemented as a dedicated state ────────
+        // (AirborneState.FixedTick → WallRunningState). Grappling stays an
+        // AbilityMovement driver; Zipline remains a reserved slot.
         WallRunning,
 
         /// <summary>
         /// UNUSED placeholder - Grapple is implemented as GrapplePullDriver +
         /// GrappleWallHoldDriver (Scripts/Movement/Grapple/) driven through
-        /// AbilityMovement, exactly the pattern predicted above. During an
-        /// active grapple (pulling OR held at the wall),
-        /// MovementStateMachine.CurrentStateId reports AbilityMovement, never
-        /// this value - query OffAngle.Networking.PlayerGrapple.IsGrappling
+        /// AbilityMovement. During an active grapple (pulling OR held at the
+        /// wall), MovementStateMachine.CurrentStateId reports AbilityMovement,
+        /// never this value - query OffAngle.Networking.PlayerGrapple.IsGrappling
         /// instead if a system specifically needs to know "is the player
         /// grappling right now" (true for both the pull and the wall hold).
         /// Kept here only so a future dedicated GrapplingState remains a

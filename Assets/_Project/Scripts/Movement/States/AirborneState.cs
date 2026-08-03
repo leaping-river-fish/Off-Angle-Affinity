@@ -46,10 +46,13 @@
 //   than in GroundedState/CrouchingState.Enter() - this is the single point
 //   that covers landing into either state.
 //
-// WALL RUN (Phase 3 hook):
-//   FixedTick() is the intended location for wall-detection raycasts.
-//   When WallRunningState is implemented, add the raycast logic here and
-//   call TransitionTo(WallRunning) when a qualifying surface is found.
+// WALL RUN (Phase 3: implemented):
+//   Tick() after Move() is the single gateway into WallRunningState (checked
+//   against the post-move position so contact is reliable). Uses
+//   WallDetection.TryFindWall + MeetsEntrySpeed. Refuses ALL walls while
+//   Time.time < WallRunExitLockEndTime (tutorial exitingWall), then also
+//   refuses same-wall reattachment within WallReattachCooldown of
+//   WallRunExitTime.
 //
 // AIR CONTROL MODEL:
 //   Two regimes, split at GroundMomentum.GetMomentumThreshold (see
@@ -88,10 +91,8 @@ namespace OffAngle.Movement.States
         public void Enter(MovementStateContext ctx)
         {
             // Intentionally empty — Velocity is owned by the previous state.
-            //
-            // PHASE 3 NOTE: WallRunningState will Enter() from here after a
-            // successful wall-contact detection. It reads ctx.Velocity to seed
-            // the wall-parallel run speed, so do not touch XZ here.
+            // WallRunningState.Enter() reads ctx.Velocity to seed wall-parallel
+            // run speed when transitioning from here, so do not touch XZ.
         }
 
         public void Tick(MovementStateContext ctx, float deltaTime)
@@ -134,7 +135,14 @@ namespace OffAngle.Movement.States
             // ── 4. Move ────────────────────────────────────────────────────
             ctx.Controller.Move(ctx.Velocity * deltaTime);
 
-            // ── 5. Landing detection ───────────────────────────────────────
+            // ── 5. Wall-run entry (post-Move so contact is current) ────────
+            // Must run before landing so a frame that both brushes a wall and
+            // kisses the ground still prefers ground. Only attempts entry
+            // while still airborne after this frame's Move.
+            if (!ctx.Controller.isGrounded && TryEnterWallRun(ctx))
+                return;
+
+            // ── 6. Landing detection ───────────────────────────────────────
             // isGrounded is updated by CharacterController.Move() above, so
             // this check reflects the result of this frame's movement.
             if (ctx.Controller.isGrounded)
@@ -197,21 +205,41 @@ namespace OffAngle.Movement.States
             }
         }
 
-        public void FixedTick(MovementStateContext ctx, float fixedDeltaTime)
-        {
-            // PHASE 3: wall-detection raycasts belong here.
-            // Cast left and right from the player; if a qualifying surface is
-            // found (normal roughly perpendicular to gravity, speed sufficient),
-            // call ctx.StateMachine.TransitionTo(MovementStateId.WallRunning).
-            //
-            // Example structure (do not implement until Phase 3):
-            // bool hitLeft  = Physics.Raycast(origin, -ctx.PlayerTransform.right, ...);
-            // bool hitRight = Physics.Raycast(origin,  ctx.PlayerTransform.right, ...);
-            // if ((hitLeft || hitRight) && horizontalSpeed >= ctx.Settings.WallRunMinSpeed)
-            //     ctx.StateMachine.TransitionTo(MovementStateId.WallRunning);
-        }
+        public void FixedTick(MovementStateContext ctx, float fixedDeltaTime) { }
 
         public void Exit(MovementStateContext ctx) { }
+
+        /// <summary>
+        /// Attempts TransitionTo(WallRunning) when a qualifying wall is beside
+        /// the player. Returns true if the transition happened (caller should
+        /// stop processing this Tick). See WALL RUN header note.
+        /// </summary>
+        private bool TryEnterWallRun(MovementStateContext ctx)
+        {
+            if (ctx.InputLocked)
+                return false;
+
+            // Universal post-exit lock (tutorial exitingWall) - blocks ALL
+            // walls briefly so a wall jump cannot instantly re-stick.
+            if (Time.time < ctx.WallRunExitLockEndTime)
+                return false;
+
+            if (!WallDetection.TryFindWall(ctx, WallSide.None, out WallHit wall))
+                return false;
+
+            // Same-wall reattachment cooldown: jumping away must not
+            // immediately re-stick after the universal lock expires.
+            bool sameWall = WallDetection.IsSameWall(ctx, wall.Collider, wall.Point);
+            if (sameWall && Time.time < ctx.WallRunExitTime + ctx.Settings.WallReattachCooldown)
+                return false;
+
+            Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            if (!WallDetection.MeetsEntrySpeed(ctx, wall.Normal, horizontal))
+                return false;
+
+            ctx.StateMachine.TransitionTo(MovementStateId.WallRunning);
+            return true;
+        }
 
         // ------------------------------------------------------------------
         // Private helpers
