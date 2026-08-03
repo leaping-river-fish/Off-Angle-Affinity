@@ -8,6 +8,9 @@
 //   WallJumpExitLock nor the same-wall reattach cooldown is blocking.
 //   Vertical velocity is zeroed on enter so the player sticks at the height
 //   they attached - default wall run is horizontal only.
+//   Air-jump charges are refreshed to EffectiveMaxJumps - 1 (the same budget
+//   left after a ground jump) so a free wall kick can be followed by a
+//   redirect double jump into the next wall. MaxJumps == 1 grants nothing.
 //
 // TRANSITIONS OUT:
 //   JumpPending                         → Airborne  (tutorial-style impulse:
@@ -72,6 +75,14 @@ namespace OffAngle.Movement.States
 
             ctx.WallRunLastCollider = wall.Collider;
             ctx.WallRunLastContactPoint = wall.Point;
+
+            // Refresh the air-jump budget (not a full landing reset). Wall kick
+            // is free and does not consume RemainingJumps, so restoring
+            // EffectiveMaxJumps - 1 leaves exactly the post-ground-jump charge
+            // count available for a redirect after the kick.
+            int airJumpBudget = ctx.EffectiveMaxJumps - 1;
+            if (airJumpBudget > 0)
+                ctx.RemainingJumps = Mathf.Max(ctx.RemainingJumps, airJumpBudget);
 
             float tangentialSpeed = Vector3.Dot(ctx.Velocity, _tangent);
             if (tangentialSpeed < 0f)

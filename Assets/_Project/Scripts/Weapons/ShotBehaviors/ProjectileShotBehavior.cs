@@ -45,7 +45,11 @@ namespace OffAngle.Weapons
 
         public override void Fire(ShotContext ctx)
         {
-            if (ProjectilePrefab == null) return;
+            if (ProjectilePrefab == null)
+            {
+                Debug.LogWarning($"[{nameof(ProjectileShotBehavior)}] '{name}' has no ProjectilePrefab assigned.", this);
+                return;
+            }
 
             GunData data = ctx.Data;
             Vector3 muzzle = ctx.Host.MuzzlePosition;

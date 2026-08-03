@@ -2,7 +2,7 @@
 // BeamRenderer — draws the visible laser beam for continuous (beam) weapons
 // while a beam is held.
 //
-// RIGIDLY ATTACHED TO THE GUN, NOT THE NETWORK TICK:
+// RIGIDLY ATTACHED TO THE GUN WHEN A LIVE FIREPOINT EXISTS (owner):
 // ShotEvents.BeamUpdated only arrives at the beam's TickRate (10/sec by
 // default - see BeamShotBehavior), which is fine for damage but far too slow
 // to redraw a beam's start point/direction every frame without it looking
@@ -20,6 +20,16 @@
 // A small mismatch between the live direction and the tick-rate hit distance
 // is possible for a fraction of a second right after a fast turn, but is far
 // less noticeable than freezing the whole beam between ticks.
+//
+// REMOTE OBSERVERS (no CurrentGun / FirePoint):
+// PlayerWeaponEquipper only calls SetGun for the owner's first-person copy
+// (and the server's logic copy). Remote peers never get a CurrentGun, so the
+// live-FirePoint path above would leave the line disabled forever even though
+// RpcBeamVisualUpdate is arriving. When no FirePoint can be resolved, the
+// line is drawn directly from the last networked origin/endPoint - same
+// approach BulletTracer already uses for discrete shots. Tick-rate stepping
+// is acceptable for remotes; they don't have the owner's camera-pitched
+// FirePoint to track between ticks anyway.
 //
 // WHY THE ORIGIN IS RESOLVED THROUGH PlayerWeaponController, NOT A FIXED
 // SERIALIZED TRANSFORM:
@@ -59,7 +69,7 @@ namespace OffAngle.Weapons
         [SerializeField] private NetworkObject _playerNetworkObject;
         [Tooltip("This player's PlayerWeaponController - CurrentGun.FirePoint is read every frame to find the beam's live origin/direction (see header for why this can't just be a fixed Transform field). Leave unset to auto-find via GetComponentInParent.")]
         [SerializeField] private PlayerWeaponController _weaponController;
-        [Tooltip("Optional fallback origin used only while no Gun is currently equipped (or _weaponController couldn't be resolved), so this never hard-fails. Safe to leave unset.")]
+        [Tooltip("Optional fallback origin used only while no Gun is currently equipped (or _weaponController couldn't be resolved), so this never hard-fails. Safe to leave unset - remotes fall back to networked origin/endPoint instead.")]
         [SerializeField] private Transform _fallbackBeamOrigin;
         [Tooltip("Optional. Leave unset to use a shared runtime-generated material (Sprites/Default), same fallback BulletTracer.cs uses.")]
         [SerializeField] private Material _material;
@@ -74,6 +84,8 @@ namespace OffAngle.Weapons
         private LineRenderer _line;
         private bool _isActive;
         private float _currentDistance;
+        private Vector3 _networkedOrigin;
+        private Vector3 _networkedEndPoint;
 
         // ------------------------------------------------------------------
         // Setup
@@ -105,8 +117,6 @@ namespace OffAngle.Weapons
         {
             if (_playerNetworkObject == null)
                 Debug.LogWarning($"[{nameof(BeamRenderer)}] No NetworkObject assigned or found in parents for '{name}'.", this);
-            if (_weaponController == null && _fallbackBeamOrigin == null)
-                Debug.LogWarning($"[{nameof(BeamRenderer)}] No PlayerWeaponController found and no Fallback Beam Origin assigned for '{name}' - the beam will never appear.", this);
 
             ShotEvents.BeamUpdated += HandleBeamUpdated;
             ShotEvents.BeamStopped += HandleBeamStopped;
@@ -119,11 +129,8 @@ namespace OffAngle.Weapons
         }
 
         // ------------------------------------------------------------------
-        // ShotEvents handlers — only ever update the tracked hit distance.
-        // Actual line positions are recomputed every frame in LateUpdate from
-        // the equipped Gun's LIVE FirePoint transform, not from these
-        // networked points, so the beam never lags behind the gun between
-        // ticks (see header).
+        // ShotEvents handlers — cache networked origin/end for remotes, and
+        // the hit distance for the owner's live-FirePoint path. See header.
         // ------------------------------------------------------------------
 
         private void HandleBeamUpdated(NetworkObject attacker, GunData weapon, Vector3 origin, Vector3 endPoint, bool didHit)
@@ -131,6 +138,8 @@ namespace OffAngle.Weapons
             if (attacker != _playerNetworkObject) return;
 
             _isActive = true;
+            _networkedOrigin = origin;
+            _networkedEndPoint = endPoint;
             _currentDistance = Vector3.Distance(origin, endPoint);
         }
 
@@ -143,8 +152,8 @@ namespace OffAngle.Weapons
         }
 
         // ------------------------------------------------------------------
-        // Per-frame line update — see header for why this, not the RPC
-        // handlers above, owns the beam's live position/direction.
+        // Per-frame line update — owner uses live FirePoint + networked
+        // length; remotes (no FirePoint) use the last networked segment.
         // ------------------------------------------------------------------
 
         private void LateUpdate()
@@ -152,17 +161,26 @@ namespace OffAngle.Weapons
             if (!_isActive) return;
 
             Transform origin = ResolveBeamOrigin();
-            if (origin == null) return;
+            Vector3 start;
+            Vector3 end;
 
-            Vector3 start = origin.position;
-            Vector3 end = start + origin.forward * _currentDistance;
+            if (origin != null)
+            {
+                start = origin.position;
+                end = start + origin.forward * _currentDistance;
+            }
+            else
+            {
+                start = _networkedOrigin;
+                end = _networkedEndPoint;
+            }
 
             _line.enabled = true;
             _line.SetPosition(0, start);
             _line.SetPosition(1, end);
         }
 
-        /// <summary>Prefers the currently equipped Gun's live FirePoint (re-read every frame - see header); falls back to _fallbackBeamOrigin if no Gun is equipped right now.</summary>
+        /// <summary>Prefers the currently equipped Gun's live FirePoint (re-read every frame - see header); falls back to _fallbackBeamOrigin if no Gun is equipped right now. Returns null when neither is available so LateUpdate can draw from networked points instead.</summary>
         private Transform ResolveBeamOrigin()
         {
             Gun gun = _weaponController != null ? _weaponController.CurrentGun : null;

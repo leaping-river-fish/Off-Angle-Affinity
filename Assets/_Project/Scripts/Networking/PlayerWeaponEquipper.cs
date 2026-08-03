@@ -10,8 +10,8 @@
 //   keeps the inactive one(s) disabled, and re-homes PlayerWeaponController's
 //   active Gun reference via SetGun() whenever the active category changes or
 //   LoadoutManager reports a new selection for any category. Reuses the
-//   existing (previously unused) SwitchWeaponEvent to cycle which equipped
-//   category is active.
+//   existing SwitchWeaponEvent to cycle which equipped category is active,
+//   plus SelectWeaponCategoryEvent (Primary/Sidearm keys) for direct slot select.
 //
 //   Re-equipping on selection change is immediate - if the player changes
 //   their loadout in the menu (e.g. while dead, waiting to respawn), it takes
@@ -168,7 +168,10 @@ namespace OffAngle.Networking
             if (LoadoutManager.Instance != null)
                 LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
             if (_inputReader != null)
+            {
                 _inputReader.SwitchWeaponEvent += HandleSwitchWeapon;
+                _inputReader.SelectWeaponCategoryEvent += HandleSelectWeaponCategory;
+            }
 
             EquipAllFromLoadout();
         }
@@ -181,7 +184,10 @@ namespace OffAngle.Networking
             if (LoadoutManager.Instance != null)
                 LoadoutManager.Instance.SelectionChanged -= HandleSelectionChanged;
             if (_inputReader != null)
+            {
                 _inputReader.SwitchWeaponEvent -= HandleSwitchWeapon;
+                _inputReader.SelectWeaponCategoryEvent -= HandleSelectWeaponCategory;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -194,8 +200,8 @@ namespace OffAngle.Networking
             if (LoadoutManager.Instance == null || _categoryCycleOrder == null) return;
 
             // Set before applying (not after): ApplyCategory ultimately calls
-            // SetGun -> ServerResetAmmo, and there is no reason for that
-            // round trip to re-enter this method.
+            // SetGun, and there is no reason for that round trip to re-enter
+            // this method.
             _hasEquippedFromLoadout = true;
 
             for (int i = 0; i < _categoryCycleOrder.Length; i++)
@@ -241,7 +247,10 @@ namespace OffAngle.Networking
             if (category == null) return;
 
             if (_equippedInstances.TryGetValue(category, out Gun existing) && existing != null)
+            {
+                _weaponController?.ForgetSavedAmmo(existing);
                 Destroy(existing.gameObject);
+            }
             _equippedInstances.Remove(category);
 
             if (definition != null && definition.WeaponPrefab != null && _weaponHolder != null)
@@ -260,7 +269,7 @@ namespace OffAngle.Networking
         }
 
         // ------------------------------------------------------------------
-        // Active-category switching (SwitchWeaponEvent — mouse scroll today)
+        // Active-category switching (scroll cycle + direct category keys)
         // ------------------------------------------------------------------
 
         private void HandleSwitchWeapon(float direction)
@@ -269,9 +278,34 @@ namespace OffAngle.Networking
             if (Mathf.Approximately(direction, 0f)) return;
 
             int step = direction > 0f ? 1 : -1;
-            _activeIndex = (_activeIndex + step + _categoryCycleOrder.Length) % _categoryCycleOrder.Length;
-            RefreshActiveGun();
+            SetActiveIndex((_activeIndex + step + _categoryCycleOrder.Length) % _categoryCycleOrder.Length);
+        }
 
+        /// <summary>
+        /// Direct slot select from input (e.g. Primary / Sidearm keys).
+        /// Matches the action name to WeaponCategory.Id in _categoryCycleOrder.
+        /// </summary>
+        private void HandleSelectWeaponCategory(string categoryId)
+        {
+            if (string.IsNullOrEmpty(categoryId) || _categoryCycleOrder == null) return;
+
+            for (int i = 0; i < _categoryCycleOrder.Length; i++)
+            {
+                WeaponCategory category = _categoryCycleOrder[i];
+                if (category == null || category.Id != categoryId) continue;
+
+                SetActiveIndex(i);
+                return;
+            }
+        }
+
+        private void SetActiveIndex(int index)
+        {
+            if (_categoryCycleOrder == null || index < 0 || index >= _categoryCycleOrder.Length) return;
+            if (_activeIndex == index) return;
+
+            _activeIndex = index;
+            RefreshActiveGun();
             CmdSetActiveIndex(_activeIndex);
         }
 
@@ -345,7 +379,13 @@ namespace OffAngle.Networking
         private void CmdSetActiveIndex(int index)
         {
             if (_categoryCycleOrder == null || index < 0 || index >= _categoryCycleOrder.Length) return;
+
+            // Host already applied this locally in SetActiveIndex; still
+            // re-apply so a dedicated-server copy of this player swaps its
+            // authoritative Gun (and therefore its per-weapon ammo) to match.
+            _activeIndex = index;
             _syncedActiveIndex.Value = index;
+            RefreshActiveGun();
         }
 
         // ------------------------------------------------------------------

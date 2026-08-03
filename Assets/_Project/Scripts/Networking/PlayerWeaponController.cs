@@ -41,6 +41,7 @@ using OffAngle.Core;
 using OffAngle.Weapons;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -83,7 +84,20 @@ namespace OffAngle.Networking
         private readonly SyncVar<int>  _reserveAmmo  = new SyncVar<int>();
         private readonly SyncVar<bool> _isReloading  = new SyncVar<bool>();
 
+        // Server-only: magazine/reserve remembered per equipped Gun instance so
+        // category switches restore the weapon you left, instead of reseeding
+        // from GunData. Cleared on respawn (ServerResetAmmo). Entries for a
+        // destroyed Gun are dropped via ForgetSavedAmmo when the equipper
+        // replaces a loadout slot.
+        private readonly Dictionary<Gun, AmmoSnapshot> _ammoByGun = new();
+
         private Coroutine _reloadRoutine;
+
+        private struct AmmoSnapshot
+        {
+            public int Magazine;
+            public int Reserve;
+        }
 
         // ------------------------------------------------------------------
         // Continuous (beam) state.
@@ -174,13 +188,13 @@ namespace OffAngle.Networking
         /// <summary>
         /// Swaps the Gun this controller fires against and validates ammo
         /// for. Called by PlayerWeaponEquipper whenever the equipped weapon
-        /// changes (initial spawn equip, respawn, or a menu/category switch).
-        /// Re-homes the RequestFire/HoldStarted/HoldStopped subscriptions on
-        /// the owner, stops any beam that was active against the OLD weapon
-        /// (switching weapons must not leave a beam running server-side
-        /// against a weapon we no longer have equipped), and reseeds ammo on
-        /// the server for the new weapon's GunData - no duplicated seeding
-        /// logic, this just calls the same path Respawner already uses.
+        /// changes (initial spawn equip, loadout change, or a category
+        /// switch). Re-homes the RequestFire/HoldStarted/HoldStopped
+        /// subscriptions on the owner, stops any beam that was active against
+        /// the OLD weapon, and on the server saves/restores per-Gun ammo so
+        /// switching away and back keeps magazine and reserves. Full refill
+        /// from GunData is only done by ServerResetAmmo (respawn) or the
+        /// first time a given Gun instance is drawn.
         /// </summary>
         public void SetGun(Gun gun)
         {
@@ -194,10 +208,74 @@ namespace OffAngle.Networking
                 if (base.IsOwner) CmdBeamStop();
             }
 
+            Gun previous = _gun;
             _gun = gun;
             SubscribeToGun();
 
-            ServerResetAmmo();
+            if (IsServerInitialized)
+                ServerSwapAmmo(previous, gun);
+        }
+
+        /// <summary>
+        /// Server-only. Drops any saved ammo for a Gun that is about to be
+        /// destroyed (loadout slot replaced). Without this, a destroyed
+        /// instance would leak a dictionary entry and a later Instantiate of
+        /// the same prefab would be a different key anyway.
+        /// </summary>
+        public void ForgetSavedAmmo(Gun gun)
+        {
+            if (gun == null) return;
+            _ammoByGun.Remove(gun);
+        }
+
+        /// <summary>
+        /// Cancels an in-progress reload, stops an active beam, then either
+        /// restores the next Gun's saved magazine/reserve or seeds from its
+        /// GunData the first time it is drawn. The previous Gun's current
+        /// SyncVar ammo is written into _ammoByGun first.
+        /// </summary>
+        private void ServerSwapAmmo(Gun previous, Gun next)
+        {
+            CancelReloadAndBeam();
+
+            if (previous != null)
+            {
+                _ammoByGun[previous] = new AmmoSnapshot
+                {
+                    Magazine = _magazineAmmo.Value,
+                    Reserve  = _reserveAmmo.Value
+                };
+            }
+
+            if (next == null)
+            {
+                _magazineAmmo.Value = 0;
+                _reserveAmmo.Value  = 0;
+                _isReloading.Value  = false;
+                return;
+            }
+
+            if (_ammoByGun.TryGetValue(next, out AmmoSnapshot saved))
+            {
+                _magazineAmmo.Value = saved.Magazine;
+                _reserveAmmo.Value  = saved.Reserve;
+                _isReloading.Value  = false;
+            }
+            else
+            {
+                SeedAmmoFromData(next);
+            }
+        }
+
+        private void CancelReloadAndBeam()
+        {
+            if (_reloadRoutine != null)
+            {
+                StopCoroutine(_reloadRoutine);
+                _reloadRoutine = null;
+            }
+            if (_serverBeamActive) ServerStopBeam();
+            _isReloading.Value = false;
         }
 
         private void SubscribeToGun()
@@ -235,11 +313,12 @@ namespace OffAngle.Networking
             SeedAmmoFromData();
         }
 
-        private void SeedAmmoFromData()
+        private void SeedAmmoFromData(Gun gun = null)
         {
-            if (_gun == null || _gun.Data == null) return;
-            _magazineAmmo.Value = _gun.Data.MagazineSize;
-            _reserveAmmo.Value  = _gun.Data.StartingReserveAmmo;
+            gun ??= _gun;
+            if (gun == null || gun.Data == null) return;
+            _magazineAmmo.Value = gun.Data.MagazineSize;
+            _reserveAmmo.Value  = gun.Data.StartingReserveAmmo;
             _isReloading.Value  = false;
         }
         /// <summary>
@@ -255,16 +334,17 @@ namespace OffAngle.Networking
             _gun?.SetLocked(locked);
         }
 
-        /// <summary>Server-only. Cancels any in-progress reload and refills ammo to the weapon's starting values. Called by Respawner on respawn.</summary>
+        /// <summary>
+        /// Server-only. Cancels any in-progress reload, clears every per-Gun
+        /// ammo snapshot, and refills the currently drawn weapon to its
+        /// GunData starting values. Called by Respawner on respawn so a later
+        /// weapon switch cannot restore pre-death magazine/reserve counts.
+        /// </summary>
         public void ServerResetAmmo()
         {
             if (!IsServerInitialized) return;
-            if (_reloadRoutine != null)
-            {
-                StopCoroutine(_reloadRoutine);
-                _reloadRoutine = null;
-            }
-            if (_serverBeamActive) ServerStopBeam();
+            CancelReloadAndBeam();
+            _ammoByGun.Clear();
             SeedAmmoFromData();
         }
 
@@ -517,8 +597,9 @@ namespace OffAngle.Networking
         [ObserversRpc]
         private void RpcBeamStarted()
         {
-            if (_gun != null && _gun.Data != null)
-                ShotEvents.RaiseBeamStarted(base.NetworkObject, _gun.Data);
+            // Always raise - remote observers have no CurrentGun (_gun is
+            // owner/server-only via SetGun), same pattern as RpcBeamVisualUpdate.
+            ShotEvents.RaiseBeamStarted(base.NetworkObject, _gun != null ? _gun.Data : null);
         }
 
         [ObserversRpc]
@@ -536,10 +617,11 @@ namespace OffAngle.Networking
             // Mirrors server intent to every peer, including the owner - this
             // is what stops the owner's Update() loop from sending further
             // CmdBeamTick calls once the server ends the beam for any reason
-            // (ammo empty, reload, death, weapon switch).
+            // (ammo empty, reload, death, weapon switch). Always raise the
+            // cosmetic stop event even when _gun is null so remote BeamRenderer
+            // copies clear their line (they never receive SetGun).
             _ownerBeamHeld = false;
-            if (_gun != null && _gun.Data != null)
-                ShotEvents.RaiseBeamStopped(base.NetworkObject, _gun.Data);
+            ShotEvents.RaiseBeamStopped(base.NetworkObject, _gun != null ? _gun.Data : null);
         }
 
         // ------------------------------------------------------------------

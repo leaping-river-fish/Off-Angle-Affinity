@@ -12,6 +12,14 @@
 //   "already hit" flag to get out of sync, there is simply only one place hits
 //   are ever evaluated.
 //
+// COLLISION MODEL:
+//   Fast projectiles cannot rely on OnTriggerEnter alone. At typical speeds
+//   (40+ m/s) a small collider travels most of a meter per physics step, so
+//   discrete trigger overlaps tunnel through thin/angled geometry and small
+//   hitboxes (heads) depending on approach angle. Hit detection is therefore
+//   a swept SphereCast along the motion each FixedUpdate - same approach FPS
+//   projectiles use - with OnTriggerEnter kept only as a slow-speed fallback.
+//
 // LIFECYCLE:
 //   ServerInitialize() is called once by ProjectileShotBehavior right after
 //   ServerManager.Spawn. From there the server moves it via Rigidbody
@@ -39,6 +47,7 @@ namespace OffAngle.Weapons
         private readonly SyncVar<NetworkObject> _attackerSync = new SyncVar<NetworkObject>();
 
         private Rigidbody _rigidbody;
+        private float _castRadius;
 
         // Server-only bookkeeping - never read on clients.
         private Transform _attackerRoot;
@@ -47,10 +56,16 @@ namespace OffAngle.Weapons
         private float _despawnAtTime;
         private bool _initialized;
         private bool _impactResolved;
+        private Vector3 _previousPosition;
 
         private void Awake()
         {
             _rigidbody = GetComponent<Rigidbody>();
+            // Speculative CCD works with triggers; ContinuousDynamic does not.
+            // Still secondary to the swept cast below - kept for the fallback
+            // OnTriggerEnter path and for solid (non-trigger) collider setups.
+            _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            _castRadius = ResolveCastRadius();
         }
 
         public override void OnStartClient()
@@ -80,6 +95,7 @@ namespace OffAngle.Weapons
             _rigidbody.useGravity = config.UseGravity;
             _rigidbody.linearVelocity = velocity;
             _despawnAtTime = Time.time + Mathf.Max(0.01f, config.Lifetime);
+            _previousPosition = _rigidbody.position;
             _initialized = true;
         }
 
@@ -89,6 +105,41 @@ namespace OffAngle.Weapons
 
             if (Time.time >= _despawnAtTime)
                 ServerDespawn();
+        }
+
+        private void FixedUpdate()
+        {
+            if (!IsServerInitialized || !_initialized || _impactResolved) return;
+
+            Vector3 current = _rigidbody.position;
+            Vector3 delta = current - _previousPosition;
+            float distance = delta.magnitude;
+
+            if (distance > 0.0001f)
+            {
+                Vector3 direction = delta / distance;
+                LayerMask mask = _weaponData != null ? _weaponData.HitMask : ~0;
+                RaycastHit[] hits = Physics.SphereCastAll(
+                    _previousPosition,
+                    _castRadius,
+                    direction,
+                    distance,
+                    mask,
+                    QueryTriggerInteraction.Ignore);
+
+                System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+                foreach (RaycastHit hit in hits)
+                {
+                    if (_attackerRoot != null && hit.collider.transform.root == _attackerRoot)
+                        continue;
+
+                    ResolveImpact(hit.collider, hit.point, hit.normal);
+                    break;
+                }
+            }
+
+            _previousPosition = _rigidbody.position;
         }
 
         private void OnCollisionEnter(Collision collision)
@@ -114,7 +165,15 @@ namespace OffAngle.Weapons
             // (e.g. multiple colliders on the same target) - only the first
             // ever resolves damage.
             if (_impactResolved) return;
+
+            // Muzzle spawn often overlaps the shooter's capsule - ignore those
+            // contacts so the slug doesn't instantly despawn on the firer.
+            if (_attackerRoot != null && hitCollider.transform.root == _attackerRoot)
+                return;
+
             _impactResolved = true;
+            _rigidbody.linearVelocity = Vector3.zero;
+            _rigidbody.position = point;
 
             HitResolution.TryResolveAndApply(hitCollider, point, normal, _attackerRoot, _attackerSync.Value, _weaponData, _weaponData.Damage, _weaponData.HeadshotDamage, out _);
 
@@ -152,6 +211,19 @@ namespace OffAngle.Weapons
             if (!IsServerInitialized) return;
             _initialized = false;
             base.NetworkObject.Despawn();
+        }
+
+        private float ResolveCastRadius()
+        {
+            if (TryGetComponent(out SphereCollider sphere))
+            {
+                Vector3 scale = transform.lossyScale;
+                float maxScale = Mathf.Max(scale.x, Mathf.Max(scale.y, scale.z));
+                return Mathf.Max(0.01f, sphere.radius * maxScale);
+            }
+
+            Bounds bounds = GetComponent<Collider>().bounds;
+            return Mathf.Max(0.01f, Mathf.Max(bounds.extents.x, Mathf.Max(bounds.extents.y, bounds.extents.z)));
         }
 
         // ------------------------------------------------------------------

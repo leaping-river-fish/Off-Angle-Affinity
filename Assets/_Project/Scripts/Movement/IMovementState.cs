@@ -44,10 +44,13 @@
 //                   + wall-parallel component × preserved run speed
 //                   + upward impulse.
 //     Wall kick is "free" — does NOT consume RemainingJumps.
+//     Entering WallRunningState refreshes RemainingJumps to at least
+//     EffectiveMaxJumps - 1 so this kick can be followed by a redirect
+//     double jump (see WallRunningState.Enter).
 //
 //   WallRun → DoubleJump
-//     Player presses Jump while wall running (without a wall kick).
-//     Consumes one RemainingJumps charge. Fires upward + away from wall.
+//     After a wall kick (or any soft exit into Airborne), JumpPending
+//     while airborne consumes one RemainingJumps charge as usual.
 //
 //   Grapple pull → Release (cancel/timeout/obstruction) → WallRun
 //     ctx.Velocity at the moment of release (an early slingshot cancel via
@@ -189,7 +192,9 @@
 //                          anchor finds something in the way mid-pull
 //                          (GrappleAutoReleaseOnObstruction), so the player
 //                          can't grind through/into geometry either.
-//   Wall kick vs double    Wall kick is free; wall run + jump consumes a charge.
+//   Wall kick vs double    Wall kick is free; entering a wall run refreshes
+//                          the air-jump budget so a redirect double jump
+//                          after the kick is always available.
 //   Bunny hop momentum     INTENTIONAL, not an exploit: AirborneState always
 //                          preserves speed above MovementSettings.NormalMaxSpeed
 //                          (the global momentum threshold - see

@@ -65,6 +65,8 @@ namespace OffAngle.Core
 
         public event Action          InteractStarted;
         public event Action<float>   SwitchWeaponEvent;
+        // Category Id string matching WeaponCategory.Id (e.g. "Primary", "Sidearm").
+        public event Action<string>  SelectWeaponCategoryEvent;
         public event Action          OpenLoadoutMenuStarted;
 
         // ------------------------------------------------------------------
@@ -89,6 +91,8 @@ namespace OffAngle.Core
         private InputAction _crouchSlide;
         private InputAction _interact;
         private InputAction _switchWeapon;
+        private InputAction _primary;
+        private InputAction _sidearm;
         private InputAction _openLoadoutMenu;
 
         // ------------------------------------------------------------------
@@ -111,6 +115,8 @@ namespace OffAngle.Core
             _crouchSlide  = map.FindAction("CrouchSlide",  throwIfNotFound: true);
             _interact     = map.FindAction("Interact",     throwIfNotFound: true);
             _switchWeapon = map.FindAction("SwitchWeapon", throwIfNotFound: true);
+            _primary      = map.FindAction("Primary",      throwIfNotFound: true);
+            _sidearm      = map.FindAction("Sidearm",      throwIfNotFound: true);
             _openLoadoutMenu = map.FindAction("WeaponMenu", throwIfNotFound: true);
         }
 
@@ -133,6 +139,8 @@ namespace OffAngle.Core
             _crouchSlide.canceled   += OnCrouchSlideCanceled;
             _interact.performed     += OnInteract;
             _switchWeapon.performed += OnSwitchWeapon;
+            _primary.performed      += OnSelectWeaponCategory;
+            _sidearm.performed      += OnSelectWeaponCategory;
             _openLoadoutMenu.performed += OnOpenLoadoutMenu;
         }
 
@@ -157,6 +165,8 @@ namespace OffAngle.Core
             _crouchSlide.canceled   -= OnCrouchSlideCanceled;
             _interact.performed     -= OnInteract;
             _switchWeapon.performed -= OnSwitchWeapon;
+            _primary.performed      -= OnSelectWeaponCategory;
+            _sidearm.performed      -= OnSelectWeaponCategory;
             _openLoadoutMenu.performed -= OnOpenLoadoutMenu;
 
             _actionAsset?.Disable();
@@ -216,6 +226,9 @@ namespace OffAngle.Core
 
         private void OnSwitchWeapon(InputAction.CallbackContext ctx)
             => SwitchWeaponEvent?.Invoke(ctx.ReadValue<float>());
+
+        private void OnSelectWeaponCategory(InputAction.CallbackContext ctx)
+            => SelectWeaponCategoryEvent?.Invoke(ctx.action.name);
 
         private void OnOpenLoadoutMenu(InputAction.CallbackContext ctx)
             => OpenLoadoutMenuStarted?.Invoke();

@@ -10,18 +10,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9b22cc450a00b8a49a79d36a7de02483, type: 3}
-  m_Name: GunData_HandCannon
+  m_Name: GunData_SMG
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.GunData
-  Damage: 65
-  HeadshotDamage: 130
-  FireRate: 4
-  FireMode: 0
+  Damage: 18
+  HeadshotDamage: 27
+  FireRate: 16
+  FireMode: 1
   BurstCount: 3
-  MagazineSize: 6
-  StartingReserveAmmo: 24
-  ReloadTime: 1.7
+  MagazineSize: 30
+  StartingReserveAmmo: 120
+  ReloadTime: 2
   AutoReloadOnEmpty: 1
-  ShotBehavior: {fileID: 0}
+  ShotBehavior: {fileID: 11400000, guid: cec337a2406b1c24bbb60bf1ae5e1b2d, type: 2}
   Range: 100
   HitMask:
     serializedVersion: 2

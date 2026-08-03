@@ -18,10 +18,10 @@ MonoBehaviour:
   FireMode: 0
   BurstCount: 3
   MagazineSize: 12
-  StartingReserveAmmo: 48
+  StartingReserveAmmo: 60
   ReloadTime: 1.2
   AutoReloadOnEmpty: 1
-  ShotType: 0
+  ShotBehavior: {fileID: 0}
   Range: 100
   HitMask:
     serializedVersion: 2

@@ -96,8 +96,11 @@ namespace OffAngle.Movement
         /// <summary>
         /// Remaining jumps in the current airborne bout. Reset to
         /// EffectiveMaxJumps on every landing (see AirborneState.Tick()) and
-        /// decremented by one per jump (ground jump or airborne jump alike -
-        /// see GroundedState/CrouchingState/AirborneState/SlidingState).
+        /// refreshed to at least EffectiveMaxJumps - 1 when entering a wall
+        /// run (see WallRunningState.Enter()) so a wall kick can be followed
+        /// by a redirect double jump. Decremented by one per jump (ground
+        /// jump or airborne jump alike - see GroundedState/CrouchingState/
+        /// AirborneState/SlidingState). Wall kicks do not consume a charge.
         /// Must be server-authoritative in multiplayer to prevent cheat
         /// injection - not yet enforced since movement overall is still
         /// client-authoritative (see MovementStateMachine header).

@@ -13,10 +13,15 @@ MonoBehaviour:
   m_Name: GunData_Rifle
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.GunData
   Damage: 25
+  HeadshotDamage: 50
   FireRate: 10
   FireMode: 1
   BurstCount: 3
-  ShotType: 0
+  MagazineSize: 30
+  StartingReserveAmmo: 120
+  ReloadTime: 2
+  AutoReloadOnEmpty: 1
+  ShotBehavior: {fileID: 0}
   Range: 100
   HitMask:
     serializedVersion: 2

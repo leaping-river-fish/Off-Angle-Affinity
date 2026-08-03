@@ -190,6 +190,24 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""Primary"",
+                    ""type"": ""Button"",
+                    ""id"": ""17e68839-9970-40c5-ad5f-6b82268ea45b"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""Sidearm"",
+                    ""type"": ""Button"",
+                    ""id"": ""b03f3756-bf98-41bf-9569-33afd4922287"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -355,6 +373,28 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""groups"": """",
                     ""action"": ""WeaponMenu"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""4e96aa82-5957-442d-8206-a262643f6783"",
+                    ""path"": ""<Keyboard>/1"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Primary"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""2a31f457-6a55-42fb-9124-3ee29e3942e8"",
+                    ""path"": ""<Keyboard>/2"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Sidearm"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
@@ -548,6 +588,8 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
         m_Player_SwitchWeapon = m_Player.FindAction("SwitchWeapon", throwIfNotFound: true);
         m_Player_Interact = m_Player.FindAction("Interact", throwIfNotFound: true);
         m_Player_WeaponMenu = m_Player.FindAction("WeaponMenu", throwIfNotFound: true);
+        m_Player_Primary = m_Player.FindAction("Primary", throwIfNotFound: true);
+        m_Player_Sidearm = m_Player.FindAction("Sidearm", throwIfNotFound: true);
         // UI
         m_UI = asset.FindActionMap("UI", throwIfNotFound: true);
         m_UI_Navigate = m_UI.FindAction("Navigate", throwIfNotFound: true);
@@ -648,6 +690,8 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
     private readonly InputAction m_Player_SwitchWeapon;
     private readonly InputAction m_Player_Interact;
     private readonly InputAction m_Player_WeaponMenu;
+    private readonly InputAction m_Player_Primary;
+    private readonly InputAction m_Player_Sidearm;
     /// <summary>
     /// Provides access to input actions defined in input action map "Player".
     /// </summary>
@@ -703,6 +747,14 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
         /// Provides access to the underlying input action "Player/WeaponMenu".
         /// </summary>
         public InputAction @WeaponMenu => m_Wrapper.m_Player_WeaponMenu;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/Primary".
+        /// </summary>
+        public InputAction @Primary => m_Wrapper.m_Player_Primary;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/Sidearm".
+        /// </summary>
+        public InputAction @Sidearm => m_Wrapper.m_Player_Sidearm;
         /// <summary>
         /// Provides access to the underlying input action map instance.
         /// </summary>
@@ -762,6 +814,12 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
             @WeaponMenu.started += instance.OnWeaponMenu;
             @WeaponMenu.performed += instance.OnWeaponMenu;
             @WeaponMenu.canceled += instance.OnWeaponMenu;
+            @Primary.started += instance.OnPrimary;
+            @Primary.performed += instance.OnPrimary;
+            @Primary.canceled += instance.OnPrimary;
+            @Sidearm.started += instance.OnSidearm;
+            @Sidearm.performed += instance.OnSidearm;
+            @Sidearm.canceled += instance.OnSidearm;
         }
 
         /// <summary>
@@ -806,6 +864,12 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
             @WeaponMenu.started -= instance.OnWeaponMenu;
             @WeaponMenu.performed -= instance.OnWeaponMenu;
             @WeaponMenu.canceled -= instance.OnWeaponMenu;
+            @Primary.started -= instance.OnPrimary;
+            @Primary.performed -= instance.OnPrimary;
+            @Primary.canceled -= instance.OnPrimary;
+            @Sidearm.started -= instance.OnSidearm;
+            @Sidearm.performed -= instance.OnSidearm;
+            @Sidearm.canceled -= instance.OnSidearm;
         }
 
         /// <summary>
@@ -1074,6 +1138,20 @@ public partial class @PlayerInputs: IInputActionCollection2, IDisposable
         /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
         /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
         void OnWeaponMenu(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "Primary" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnPrimary(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "Sidearm" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnSidearm(InputAction.CallbackContext context);
     }
     /// <summary>
     /// Interface to implement callback methods for all input action callbacks associated with input actions defined by "UI" which allows adding and removing callbacks.
