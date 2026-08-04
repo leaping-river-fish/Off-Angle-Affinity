@@ -84,6 +84,17 @@ namespace OffAngle.Player
         /// <summary>FOV captured at Awake (or current Camera.fieldOfView). CameraWallRunEffects can restore to this.</summary>
         public float DefaultFov => _defaultFov;
 
+        /// <summary>
+        /// Current mouse sensitivity in degrees per pixel. Can be modified at
+        /// runtime by ADS or other systems. WeaponAdsController multiplies this
+        /// during aim to reduce sensitivity for precise aiming.
+        /// </summary>
+        public float Sensitivity
+        {
+            get => _sensitivity;
+            set => _sensitivity = value;
+        }
+
         // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------

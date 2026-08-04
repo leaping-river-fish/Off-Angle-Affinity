@@ -64,5 +64,27 @@ namespace OffAngle.Weapons
         [Header("Affinity (placeholder — no runtime effect yet)")]
         [Tooltip("Carried through DamageInfo. Every affinity currently deals identical damage; future systems will read this value to add slows/burns/etc.")]
         public AffinityType Affinity = AffinityType.None;
+
+        [Header("Aim Down Sights")]
+        [Tooltip("Whether this weapon supports aiming down sights. If false, ADS input is ignored for this weapon.")]
+        public bool SupportsAds = true;
+
+        [Tooltip("Local position offset from hip-fire position when fully aimed. Use (0, -0.15, 0.3) as a starting point for placeholder rectangular prism weapons.")]
+        public Vector3 AdsLocalPosition = new Vector3(0f, -0.15f, 0.3f);
+
+        [Tooltip("Local rotation offset (Euler angles) from hip-fire rotation when fully aimed. Use (0, 0, 0) for placeholder weapons.")]
+        public Vector3 AdsLocalRotation = Vector3.zero;
+
+        [Tooltip("Camera field of view while fully aimed. Standard ADS zoom is around 60 degrees.")]
+        [Range(30f, 90f)] public float AdsFov = 60f;
+
+        [Tooltip("Speed of the ADS transition in units per second. Higher = faster transition. 10 is smooth but responsive.")]
+        [Min(0.1f)] public float AdsTransitionSpeed = 10f;
+
+        [Tooltip("Mouse sensitivity multiplier while aiming. 0.6 = 40% reduction for more precise aiming.")]
+        [Range(0.1f, 1f)] public float AdsSensitivityMultiplier = 0.6f;
+
+        [Tooltip("Movement speed multiplier while aiming. Not enforced by default, but available for future movement integration. 0.8 = 20% slower.")]
+        [Range(0.1f, 1f)] public float AdsMovementSpeedMultiplier = 0.8f;
     }
 }

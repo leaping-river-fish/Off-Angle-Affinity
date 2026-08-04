@@ -47,6 +47,10 @@ namespace OffAngle.Core
         // should poll IsSprinting rather than subscribing to SprintChanged.
         public event Action<bool>    SprintChanged;
 
+        // AimChanged: true = key pressed, false = key released.
+        // WeaponAdsController subscribes here to enter/exit ADS.
+        public event Action<bool>    AimChanged;
+
         public event Action FireStarted;
         public event Action FireCanceled;
         public event Action ReloadStarted;
@@ -76,6 +80,7 @@ namespace OffAngle.Core
 
         public Vector2 MoveInput   { get; private set; }
         public bool    IsSprinting { get; private set; }
+        public bool    IsAiming    { get; private set; }
 
         // ------------------------------------------------------------------
         // Private action references
@@ -85,6 +90,7 @@ namespace OffAngle.Core
         private InputAction _look;
         private InputAction _jump;
         private InputAction _sprint;
+        private InputAction _aim;
         private InputAction _fire;
         private InputAction _reload;
         private InputAction _grapple;
@@ -109,6 +115,7 @@ namespace OffAngle.Core
             _look         = map.FindAction("Look",         throwIfNotFound: true);
             _jump         = map.FindAction("Jump",         throwIfNotFound: true);
             _sprint       = map.FindAction("Sprint",       throwIfNotFound: true);
+            _aim          = map.FindAction("Aim",          throwIfNotFound: true);
             _fire         = map.FindAction("Fire",         throwIfNotFound: true);
             _reload       = map.FindAction("Reload",       throwIfNotFound: true);
             _grapple      = map.FindAction("Grapple",      throwIfNotFound: true);
@@ -130,6 +137,8 @@ namespace OffAngle.Core
             _jump.performed         += OnJump;
             _sprint.performed       += OnSprintPerformed;
             _sprint.canceled        += OnSprintCanceled;
+            _aim.performed          += OnAimPerformed;
+            _aim.canceled           += OnAimCanceled;
             _fire.performed         += OnFire;
             _fire.canceled          += OnFireCanceled;
             _reload.performed       += OnReload;
@@ -156,6 +165,8 @@ namespace OffAngle.Core
             _jump.performed         -= OnJump;
             _sprint.performed       -= OnSprintPerformed;
             _sprint.canceled        -= OnSprintCanceled;
+            _aim.performed          -= OnAimPerformed;
+            _aim.canceled           -= OnAimCanceled;
             _fire.performed         -= OnFire;
             _fire.canceled          -= OnFireCanceled;
             _reload.performed       -= OnReload;
@@ -198,6 +209,18 @@ namespace OffAngle.Core
         {
             IsSprinting = false;
             SprintChanged?.Invoke(false);
+        }
+
+        private void OnAimPerformed(InputAction.CallbackContext ctx)
+        {
+            IsAiming = true;
+            AimChanged?.Invoke(true);
+        }
+
+        private void OnAimCanceled(InputAction.CallbackContext ctx)
+        {
+            IsAiming = false;
+            AimChanged?.Invoke(false);
         }
 
         private void OnFire(InputAction.CallbackContext ctx)

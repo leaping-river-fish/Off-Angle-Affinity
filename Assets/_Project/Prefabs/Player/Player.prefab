@@ -1887,6 +1887,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1328671644195236214}
   - component: {fileID: 822528148709365869}
+  - component: {fileID: 5250171005488443504}
   m_Layer: 0
   m_Name: Crosshair
   m_TagString: Untagged
@@ -1939,6 +1940,23 @@ MonoBehaviour:
   _bottom: {fileID: 3981846798011313249}
   _left: {fileID: 8659163909854862273}
   _right: {fileID: 8150148374086829013}
+--- !u!114 &5250171005488443504
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4500626514475088747}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 54cb0356c68ce724e85a070b1e7043e8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.AdsCrosshairController
+  _crosshairRenderer: {fileID: 0}
+  _adsController: {fileID: 6602420429851071331}
+  _fadeMode: 1
+  _hipOpacity: 1
+  _adsOpacity: 0
 --- !u!1 &4639620101725745660
 GameObject:
   m_ObjectHideFlags: 0
@@ -2102,6 +2120,7 @@ GameObject:
   - component: {fileID: 2397464270072699754}
   - component: {fileID: 1195301071428451}
   - component: {fileID: 1825543966681606798}
+  - component: {fileID: 6602420429851071331}
   m_Layer: 0
   m_Name: Camera Pivot
   m_TagString: Untagged
@@ -2161,6 +2180,25 @@ MonoBehaviour:
   _wallRunFov: 90
   _defaultFovOverride: 0
   _tiltDegrees: 5
+--- !u!114 &6602420429851071331
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5155480573157171549}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 43e97abec5e73e746b7d85c7ddae49b0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.WeaponAdsController
+  _inputReader: {fileID: 5347879498661852044}
+  _cameraController: {fileID: 5173098592073682576}
+  _weaponController: {fileID: 5993733029980762}
+  _movementStateMachine: {fileID: 996271417525511594}
+  _grapple: {fileID: 6925458499548895038}
+  _weaponHolder: {fileID: 5778633393900070154}
+  _fullyAimedThreshold: 0.98
 --- !u!1 &5984356091257518664
 GameObject:
   m_ObjectHideFlags: 0
