@@ -175,12 +175,6 @@ namespace OffAngle.Networking
         {
             switch (_state)
             {
-                case GrappleState.HookInFlight:
-                    // Hook hasn't attached yet - recall it, no pull ever starts.
-                    _state = GrappleState.Idle;
-                    CmdCancelInFlightHook();
-                    break;
-
                 case GrappleState.Pulling:
                     // The slingshot cancel: InterruptCurrentAction() calls
                     // GrapplePullDriver.Exit(interrupted: true) synchronously,
@@ -188,6 +182,11 @@ namespace OffAngle.Networking
                     // ctx.Velocity - momentum is kept.
                     _stateMachine?.InterruptCurrentAction();
                     break;
+
+                // GrappleState.HookInFlight is intentionally NOT handled here -
+                // releasing the key while the hook is in flight does nothing,
+                // allowing tap-to-fire behavior. The hook will travel its full
+                // distance and either attach or time out naturally.
 
                 // GrappleState.Holding is intentionally NOT handled here -
                 // releasing/re-pressing the Grapple input does nothing while

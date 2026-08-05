@@ -44,7 +44,7 @@ namespace OffAngle.UI
         [SerializeField] private TMP_Text        _statusText;
 
         [Header("Defaults")]
-        [Tooltip("Written into _addressField at Awake if the field is empty.")]
+        [Tooltip("Default address used when the input field is empty. The field will show placeholder text instead of actual text.")]
         [SerializeField] private string _defaultAddress = "127.0.0.1";
 
         // ------------------------------------------------------------------
@@ -53,8 +53,9 @@ namespace OffAngle.UI
 
         private void Awake()
         {
-            if (_addressField != null && string.IsNullOrEmpty(_addressField.text))
-                _addressField.text = _defaultAddress;
+            // Clear any initial text so the placeholder shows instead
+            if (_addressField != null)
+                _addressField.text = "";
 
             // AddListener rather than assigning onClick so any UnityEvents
             // authored in the inspector still fire alongside this script.
@@ -113,7 +114,10 @@ namespace OffAngle.UI
                 return;
             }
 
-            string address = _addressField != null ? _addressField.text : _defaultAddress;
+            // Use default address if field is empty
+            string address = _addressField != null && !string.IsNullOrWhiteSpace(_addressField.text) 
+                ? _addressField.text 
+                : _defaultAddress;
             _controller.StartClient(address);
         }
 

@@ -19,10 +19,14 @@
 //   data. ADS exits cleanly during the weapon switch to avoid snapping.
 //
 // MOVEMENT INTEGRATION:
-//   Sprint start → exits ADS immediately.
-//   Cannot enter ADS while already sprinting.
-//   Allowed during: standing, walking, crouching, sliding, airborne, wall running, grappling.
-//   Uses centralized IsAdsAllowedByMovement() to keep restrictions readable.
+//   ADS is allowed during all movement states (standing, walking, crouching,
+//   sprinting, sliding, airborne, wall running, grappling). ADS and movement
+//   are independent - ADS controls weapon/camera presentation while movement
+//   controls player velocity. This creates smooth transitions when the player
+//   aims while performing any movement action.
+//
+//   Reload start (manual or auto) → exits ADS immediately (player returns to
+//   hip-fire during reload). Detected by polling Gun.IsReloading each frame.
 //
 // FOV PRIORITY:
 //   ADS yields to movement effects (wall-run FOV takes priority over ADS FOV
@@ -92,6 +96,9 @@ namespace OffAngle.Weapons
         // know whether to restore them on exit.
         private bool _isAdsEffectsActive;
 
+        // Track previous reload state to detect when reload starts (manual or auto).
+        private bool _wasReloading;
+
         // ------------------------------------------------------------------
         // Public API
         // ------------------------------------------------------------------
@@ -156,7 +163,6 @@ namespace OffAngle.Weapons
             if (_inputReader != null)
             {
                 _inputReader.AimChanged += OnAimChanged;
-                _inputReader.SprintChanged += OnSprintChanged;
             }
 
             // Seed from current input state in case this component was enabled
@@ -176,7 +182,6 @@ namespace OffAngle.Weapons
             if (_inputReader != null)
             {
                 _inputReader.AimChanged -= OnAimChanged;
-                _inputReader.SprintChanged -= OnSprintChanged;
             }
 
             // Force exit ADS on disable (death, respawn, etc.).
@@ -190,6 +195,18 @@ namespace OffAngle.Weapons
             if (_weaponController != null && _weaponController.CurrentGun != _currentGun)
             {
                 HandleWeaponChanged(_weaponController.CurrentGun);
+            }
+
+            // Detect reload start (manual or auto-reload) by polling Gun.IsReloading.
+            if (_currentGun != null)
+            {
+                bool isReloading = _currentGun.IsReloading;
+                if (isReloading && !_wasReloading)
+                {
+                    // Reload just started → exit ADS.
+                    OnReloadStarted();
+                }
+                _wasReloading = isReloading;
             }
 
             // Update target blend based on input and movement restrictions.
@@ -217,10 +234,10 @@ namespace OffAngle.Weapons
             }
         }
 
-        private void OnSprintChanged(bool isSprinting)
+        private void OnReloadStarted()
         {
-            // Sprint start → exit ADS immediately.
-            if (isSprinting && _adsBlend > 0f)
+            // Reload (manual or auto) → exit ADS immediately.
+            if (_adsBlend > 0f)
             {
                 _isAdsInputHeld = false; // Override input to force exit.
             }
@@ -344,14 +361,9 @@ namespace OffAngle.Weapons
 
         private bool IsAdsAllowedByMovement()
         {
-            if (_movementStateMachine == null)
-                return true; // No movement system → allow ADS by default.
-
-            if (_inputReader != null && _inputReader.IsSprinting)
-                return false; // Cannot enter ADS while sprinting.
-
-            // All other movement states allow ADS (standing, walking, crouching,
-            // sliding, airborne, wall running, ability movement / grappling).
+            // ADS is allowed during all movement states including sprinting and
+            // sliding. ADS takes visual priority (weapon positioning, FOV, 
+            // sensitivity) while the movement system independently controls speed.
             return true;
         }
 

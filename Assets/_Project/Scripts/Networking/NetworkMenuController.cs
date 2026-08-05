@@ -31,6 +31,47 @@ namespace OffAngle.Networking
     public class NetworkMenuController : MonoBehaviour
     {
         // ------------------------------------------------------------------
+        // Customizable Status Messages
+        // ------------------------------------------------------------------
+
+        [Header("Status Messages")]
+        [Tooltip("Status message shown on startup before any connection attempts.")]
+        [SerializeField] private string _idleMessage = "Idle";
+
+        [Tooltip("Status message shown when attempting to connect.")]
+        [SerializeField] private string _connectingMessage = "Connecting...";
+
+        [Tooltip("Status message shown when successfully connected.")]
+        [SerializeField] private string _connectedMessage = "Connected";
+
+        [Tooltip("Status message shown when disconnecting.")]
+        [SerializeField] private string _disconnectingMessage = "Disconnecting...";
+
+        [Tooltip("Status message shown when disconnected after being connected.")]
+        [SerializeField] private string _disconnectedMessage = "Disconnected";
+
+        [Tooltip("Status message shown when a connection attempt fails.")]
+        [SerializeField] private string _connectionFailedMessage = "Connection failed";
+
+        [Tooltip("Status message shown when stopped without connecting.")]
+        [SerializeField] private string _stoppedMessage = "Stopped";
+
+        [Tooltip("Status message shown when starting host mode.")]
+        [SerializeField] private string _startingHostMessage = "Starting host...";
+
+        [Tooltip("Status message shown when already running.")]
+        [SerializeField] private string _alreadyRunningMessage = "Already running";
+
+        [Tooltip("Status message shown when already connected.")]
+        [SerializeField] private string _alreadyConnectedMessage = "Already connected";
+
+        [Tooltip("Status message shown when NetworkManager is not ready.")]
+        [SerializeField] private string _notReadyMessage = "NetworkManager not ready";
+
+        [Tooltip("Status message shown when no server address is provided.")]
+        [SerializeField] private string _noAddressMessage = "Enter a server address";
+
+        // ------------------------------------------------------------------
         // Public events
         // ------------------------------------------------------------------
 
@@ -80,7 +121,7 @@ namespace OffAngle.Networking
             // failed client connection (no one is listening on 127.0.0.1).
             InstanceFinder.ClientManager.OnClientConnectionState += HandleClientConnectionState;
 
-            RaiseStatus("Idle");
+            RaiseStatus(_idleMessage);
         }
 
         private void OnDestroy()
@@ -103,17 +144,17 @@ namespace OffAngle.Networking
         {
             if (InstanceFinder.ServerManager == null || InstanceFinder.ClientManager == null)
             {
-                RaiseStatus("NetworkManager not ready");
+                RaiseStatus(_notReadyMessage);
                 return;
             }
 
             if (InstanceFinder.IsServerStarted || InstanceFinder.IsClientStarted)
             {
-                RaiseStatus("Already running");
+                RaiseStatus(_alreadyRunningMessage);
                 return;
             }
 
-            RaiseStatus("Starting host...");
+            RaiseStatus(_startingHostMessage);
 
             // ServerManager.StartConnection() uses the port from the transport
             // component (Tugboat) on the same GameObject. It returns false on
@@ -134,19 +175,19 @@ namespace OffAngle.Networking
         {
             if (InstanceFinder.ClientManager == null)
             {
-                RaiseStatus("NetworkManager not ready");
+                RaiseStatus(_notReadyMessage);
                 return;
             }
 
             if (InstanceFinder.IsClientStarted)
             {
-                RaiseStatus("Already connected");
+                RaiseStatus(_alreadyConnectedMessage);
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(address))
             {
-                RaiseStatus("Enter a server address");
+                RaiseStatus(_noAddressMessage);
                 return;
             }
 
@@ -171,17 +212,17 @@ namespace OffAngle.Networking
             switch (args.ConnectionState)
             {
                 case LocalConnectionState.Starting:
-                    RaiseStatus("Connecting...");
+                    RaiseStatus(_connectingMessage);
                     break;
 
                 case LocalConnectionState.Started:
                     _hasReachedStarted = true;
-                    RaiseStatus("Connected");
+                    RaiseStatus(_connectedMessage);
                     Connected?.Invoke();
                     break;
 
                 case LocalConnectionState.Stopping:
-                    RaiseStatus("Disconnecting...");
+                    RaiseStatus(_disconnectingMessage);
                     break;
 
                 case LocalConnectionState.Stopped:
@@ -191,10 +232,10 @@ namespace OffAngle.Networking
                     //     attempt (bad IP, unreachable host, port bind failure
                     //     in host mode, etc.).
                     string reason = _hasReachedStarted
-                        ? "Disconnected"
+                        ? _disconnectedMessage
                         : previous == LocalConnectionState.Starting
-                            ? "Connection failed"
-                            : "Stopped";
+                            ? _connectionFailedMessage
+                            : _stoppedMessage;
 
                     _hasReachedStarted = false;
                     RaiseStatus(reason);
