@@ -56,6 +56,7 @@ namespace OffAngle.Player
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerInputReader))]
     [RequireComponent(typeof(MovementStateMachine))]
+    [RequireComponent(typeof(PlayerInputStateController))]
     public class PlayerController : MonoBehaviour
     {
         [SerializeField] private MovementSettings _movementSettings = new MovementSettings();

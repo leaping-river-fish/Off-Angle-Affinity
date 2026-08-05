@@ -68,6 +68,9 @@ namespace OffAngle.Weapons
         [Tooltip("Leave null to auto-resolve via GetComponentInParent. Used to check IsGrappling.")]
         [SerializeField] private PlayerGrapple _grapple;
 
+        [Tooltip("Leave null to auto-resolve via GetComponentInParent. Used to gate ADS by input state.")]
+        [SerializeField] private PlayerInputStateController _stateController;
+
         [Tooltip("Transform where Gun instances are spawned (usually this transform itself, or a child named 'First Person Weapon Holder'). ADS positioning is applied here.")]
         [SerializeField] private Transform _weaponHolder;
 
@@ -154,6 +157,9 @@ namespace OffAngle.Weapons
             if (_grapple == null)
                 _grapple = GetComponentInParent<PlayerGrapple>();
 
+            if (_stateController == null)
+                _stateController = GetComponentInParent<PlayerInputStateController>();
+
             if (_weaponHolder == null)
                 _weaponHolder = transform;
         }
@@ -163,6 +169,11 @@ namespace OffAngle.Weapons
             if (_inputReader != null)
             {
                 _inputReader.AimChanged += OnAimChanged;
+            }
+
+            if (_stateController != null)
+            {
+                _stateController.OnStateChanged += HandleInputStateChanged;
             }
 
             // Seed from current input state in case this component was enabled
@@ -182,6 +193,11 @@ namespace OffAngle.Weapons
             if (_inputReader != null)
             {
                 _inputReader.AimChanged -= OnAimChanged;
+            }
+
+            if (_stateController != null)
+            {
+                _stateController.OnStateChanged -= HandleInputStateChanged;
             }
 
             // Force exit ADS on disable (death, respawn, etc.).
@@ -361,6 +377,10 @@ namespace OffAngle.Weapons
 
         private bool IsAdsAllowedByMovement()
         {
+            // ADS is only allowed in Gameplay state (not in Menu or Dead).
+            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
+                return false;
+
             // ADS is allowed during all movement states including sprinting and
             // sliding. ADS takes visual priority (weapon positioning, FOV, 
             // sensitivity) while the movement system independently controls speed.
@@ -395,6 +415,24 @@ namespace OffAngle.Weapons
             }
 
             _isAdsEffectsActive = false;
+        }
+
+        // ------------------------------------------------------------------
+        // Input state integration
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// React to PlayerInputStateController state changes. Exit ADS when
+        /// entering Menu or Dead state to prevent the player from remaining
+        /// aimed while unable to fire.
+        /// </summary>
+        private void HandleInputStateChanged(PlayerInputState oldState, PlayerInputState newState)
+        {
+            // Exit ADS when leaving Gameplay state
+            if (oldState == PlayerInputState.Gameplay && newState != PlayerInputState.Gameplay)
+            {
+                ForceExitAds();
+            }
         }
     }
 }

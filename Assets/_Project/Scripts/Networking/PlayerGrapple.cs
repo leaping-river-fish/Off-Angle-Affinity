@@ -83,6 +83,8 @@ namespace OffAngle.Networking
         [SerializeField] private Transform _cameraTransform;
         [Tooltip("Optional. When assigned, CmdFireGrapple rejects requests while this reports the player as dead - a server-side backstop in case a modified client bypasses the owner-side check.")]
         [SerializeField] private PlayerLifecycleController _lifecycle;
+        [Tooltip("Optional. Leave null to auto-resolve. Used to gate input by state (only grapple during Gameplay state).")]
+        [SerializeField] private PlayerInputStateController _stateController;
 
         [Header("Hook Prefab")]
         [Tooltip("Must have a NetworkObject, NetworkTransform, Rigidbody, and a TRIGGER Collider in addition to the GrappleHook component.")]
@@ -133,6 +135,12 @@ namespace OffAngle.Networking
         // Lifecycle - subscribe only for the owning client
         // ------------------------------------------------------------------
 
+        private void Awake()
+        {
+            if (_stateController == null)
+                _stateController = GetComponentInParent<PlayerInputStateController>();
+        }
+
         public override void OnStartClient()
         {
             base.OnStartClient();
@@ -141,6 +149,9 @@ namespace OffAngle.Networking
 
             _inputReader.GrappleStarted += HandleGrappleStarted;
             _inputReader.GrappleCanceled += HandleGrappleCanceled;
+
+            if (_stateController != null)
+                _stateController.OnStateChanged += HandleInputStateChanged;
         }
 
         public override void OnStopClient()
@@ -151,6 +162,9 @@ namespace OffAngle.Networking
 
             _inputReader.GrappleStarted -= HandleGrappleStarted;
             _inputReader.GrappleCanceled -= HandleGrappleCanceled;
+
+            if (_stateController != null)
+                _stateController.OnStateChanged -= HandleInputStateChanged;
         }
 
         // ------------------------------------------------------------------
@@ -159,6 +173,10 @@ namespace OffAngle.Networking
 
         private void HandleGrappleStarted()
         {
+            // Gate input by state: only allow grappling during Gameplay
+            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
+                return;
+
             if (_state != GrappleState.Idle) return;
             if (Time.time < _ownerNextAllowedFireTime) return;
             if (_lifecycle != null && _lifecycle.IsDead) return;
@@ -229,6 +247,27 @@ namespace OffAngle.Networking
             origin = _cameraTransform != null ? _cameraTransform.position : transform.position;
             direction = _cameraTransform != null ? _cameraTransform.forward : transform.forward;
             origin += direction * _muzzleClearanceDistance;
+        }
+
+        // ------------------------------------------------------------------
+        // Input state integration
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// React to PlayerInputStateController state changes. Cancel any ongoing
+        /// grapple activity (in-flight hook, active pull, or wall hold) when
+        /// entering Menu or Dead state.
+        /// </summary>
+        private void HandleInputStateChanged(PlayerInputState oldState, PlayerInputState newState)
+        {
+            // Only the owner handles input state changes (remote players don't grapple locally)
+            if (!base.IsOwner) return;
+
+            // Cancel grapple when leaving Gameplay state
+            if (oldState == PlayerInputState.Gameplay && newState != PlayerInputState.Gameplay)
+            {
+                CancelGrapple();
+            }
         }
 
         // ------------------------------------------------------------------

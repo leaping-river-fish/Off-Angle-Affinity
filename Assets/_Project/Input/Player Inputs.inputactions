@@ -366,6 +366,15 @@
                     "initialStateCheck": false
                 },
                 {
+                    "name": "WeaponMenu",
+                    "type": "Button",
+                    "id": "a7c3e91f-2b84-4d6e-9f15-6e8d4c2a1b09",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
                     "name": "Point",
                     "type": "PassThrough",
                     "id": "cde26a28-51a6-4763-9a38-c377d85f5096",
@@ -468,6 +477,17 @@
                     "processors": "",
                     "groups": "",
                     "action": "Cancel",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f1e2d3c4-b5a6-9788-1234-567890abcdef",
+                    "path": "<Keyboard>/p",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "WeaponMenu",
                     "isComposite": false,
                     "isPartOfComposite": false
                 },

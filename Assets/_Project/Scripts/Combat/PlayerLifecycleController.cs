@@ -30,6 +30,7 @@
 using System;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
+using OffAngle.Core;
 using OffAngle.Movement;
 using OffAngle.Networking;
 using UnityEngine;
@@ -54,6 +55,8 @@ namespace OffAngle.Combat
         [SerializeField] private PlayerWeaponEquipper _weaponEquipper;
         [Tooltip("Optional. When assigned, an in-flight hook or an active pull is force-ended immediately on death instead of lingering until ResetTransientInput() runs at respawn.")]
         [SerializeField] private PlayerGrapple _playerGrapple;
+        [Tooltip("Optional. Leave null to auto-resolve. Used to broadcast input state changes (Dead on death, Gameplay on respawn).")]
+        [SerializeField] private PlayerInputStateController _stateController;
 
         [Header("Corpse / visibility (all peers)")]
         [SerializeField] private PlayerRagdoll _ragdoll;
@@ -103,6 +106,7 @@ namespace OffAngle.Combat
             if (_respawner == null) _respawner = GetComponent<Respawner>();
             if (_shield == null) _shield = GetComponent<Shield>();
             if (_characterController == null) _characterController = GetComponent<CharacterController>();
+            if (_stateController == null) _stateController = GetComponent<PlayerInputStateController>();
         }
 
         public override void OnStartServer()
@@ -115,6 +119,13 @@ namespace OffAngle.Combat
         public override void OnStopServer()
         {
             base.OnStopServer();
+            if (_health != null)
+                _health.OnServerDied -= HandleServerDied;
+        }
+
+        private void OnDestroy()
+        {
+            // Additional cleanup for safety during despawn
             if (_health != null)
                 _health.OnServerDied -= HandleServerDied;
         }
@@ -189,6 +200,12 @@ namespace OffAngle.Combat
             SwapToDeathCamera();
             _playerVisibility?.ForceVisibleToOwner(true);
 
+            // Notify state controller of death - this coordinates cursor unlock,
+            // UI visibility, and action map switching alongside the existing
+            // component-level locks in SetOwnerGameplayLocked.
+            if (_stateController != null)
+                _stateController.EnterDeathState();
+
             OnLocalDied?.Invoke(info);
         }
 
@@ -210,6 +227,12 @@ namespace OffAngle.Combat
             SetOwnerGameplayLocked(false);
             SwapToFirstPersonCamera();
             _playerVisibility?.ForceVisibleToOwner(false);
+
+            // Notify state controller of respawn - this coordinates cursor lock,
+            // UI visibility, and action map switching alongside the existing
+            // component-level unlocks in SetOwnerGameplayLocked.
+            if (_stateController != null)
+                _stateController.EnterGameplayState();
 
             OnLocalRespawned?.Invoke();
         }

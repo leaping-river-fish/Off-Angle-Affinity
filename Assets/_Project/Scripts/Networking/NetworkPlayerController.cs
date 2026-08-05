@@ -24,6 +24,8 @@
 //     - MovementStateMachine.enabled   = FALSE
 //   On the camera CHILD GameObject:
 //     - GameObject.activeSelf          = FALSE  (entire camera subtree off)
+//   On the HUD Canvas CHILD GameObject:
+//     - GameObject.activeSelf          = FALSE  (entire HUD subtree off)
 //
 //   The PlayerController component itself stays ENABLED so its Awake() can
 //   build the MovementStateContext and call StateMachine.Initialize(). The
@@ -38,6 +40,8 @@
 //   keeping remote components in their never-enabled state from prefab
 //   instantiation onward, OnDisable never fires on remotes. The local owner
 //   gets a single clean OnEnable when SetActive(true) flips below.
+//   Similarly, HUD elements (including menus) must start inactive to avoid
+//   remote players' UI appearing on the local player's screen.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // LIFECYCLE ORDER (do not change without testing the cursor lock carefully):
@@ -47,7 +51,7 @@
 //   3. PlayerController.Awake() runs on every peer (gameplay-agnostic init).
 //   4. NetworkBehaviour.OnStartClient() runs on every client (this script).
 //   5. For IsOwner: input reader enabled, state machine enabled, camera
-//      subtree activated. Their OnEnables fire in that order.
+//      subtree activated, HUD subtree activated. Their OnEnables fire in order.
 //   6. For !IsOwner: nothing happens here; everything stays in the off
 //      defaults baked into the prefab.
 // =============================================================================
@@ -70,6 +74,10 @@ namespace OffAngle.Networking
         [Tooltip("The root GameObject of the player's camera. Activated for the local owner; left inactive for remote players to avoid extra cameras / audio listeners.")]
         [SerializeField] private GameObject             _cameraRoot;
 
+        [Header("HUD subtree (must be SetActive(false) in the prefab)")]
+        [Tooltip("The root GameObject of the player's HUD (health, ammo, crosshair, menus). Activated for the local owner; left inactive for remote players.")]
+        [SerializeField] private GameObject             _hudRoot;
+
         // ------------------------------------------------------------------
         // FishNet lifecycle
         // ------------------------------------------------------------------
@@ -90,6 +98,7 @@ namespace OffAngle.Networking
             if (_inputReader != null)  _inputReader.enabled  = true;
             if (_stateMachine != null) _stateMachine.enabled = true;
             if (_cameraRoot != null)   _cameraRoot.SetActive(true);
+            if (_hudRoot != null)      _hudRoot.SetActive(true);
         }
 
         public override void OnStopClient()
@@ -102,9 +111,24 @@ namespace OffAngle.Networking
             if (!base.IsOwner)
                 return;
 
-            if (_cameraRoot != null)   _cameraRoot.SetActive(false);
-            if (_stateMachine != null) _stateMachine.enabled = false;
-            if (_inputReader != null)  _inputReader.enabled  = false;
+            CleanupOwnerComponents();
+        }
+
+        private void OnDestroy()
+        {
+            // Additional cleanup during despawn to prevent null references
+            if (base.IsOwner)
+            {
+                CleanupOwnerComponents();
+            }
+        }
+
+        private void CleanupOwnerComponents()
+        {
+            if (_hudRoot != null && _hudRoot)      _hudRoot.SetActive(false);
+            if (_cameraRoot != null && _cameraRoot)   _cameraRoot.SetActive(false);
+            if (_stateMachine != null && _stateMachine) _stateMachine.enabled = false;
+            if (_inputReader != null && _inputReader)  _inputReader.enabled  = false;
         }
 
         // ------------------------------------------------------------------

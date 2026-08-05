@@ -101,6 +101,12 @@ namespace OffAngle.Core
         private InputAction _sidearm;
         private InputAction _openLoadoutMenu;
 
+        // UI map actions
+        private InputAction _uiCloseMenu;
+
+        private InputActionMap _playerMap;
+        private InputActionMap _uiMap;
+
         // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------
@@ -109,7 +115,10 @@ namespace OffAngle.Core
         {
             ResolveActionAsset();
 
-            var map = _actionAsset.FindActionMap("Player", throwIfNotFound: true);
+            _playerMap = _actionAsset.FindActionMap("Player", throwIfNotFound: true);
+            _uiMap = _actionAsset.FindActionMap("UI", throwIfNotFound: true);
+
+            var map = _playerMap;
 
             _move         = map.FindAction("Move",         throwIfNotFound: true);
             _look         = map.FindAction("Look",         throwIfNotFound: true);
@@ -125,11 +134,25 @@ namespace OffAngle.Core
             _primary      = map.FindAction("Primary",      throwIfNotFound: true);
             _sidearm      = map.FindAction("Sidearm",      throwIfNotFound: true);
             _openLoadoutMenu = map.FindAction("WeaponMenu", throwIfNotFound: true);
+
+            // UI map actions
+            var uiMapActions = _uiMap;
+            // Try to find WeaponMenu action in UI map (P key to close menu)
+            _uiCloseMenu = uiMapActions.FindAction("WeaponMenu", throwIfNotFound: false);
+            if (_uiCloseMenu == null)
+            {
+                // Fall back to Cancel (Escape)
+                _uiCloseMenu = uiMapActions.FindAction("Cancel", throwIfNotFound: false);
+            }
         }
 
         private void OnEnable()
         {
-            _actionAsset.Enable();
+            // Enable only the Player map by default. PlayerInputStateController
+            // manages which map should be active based on the current state
+            // (Gameplay vs Menu vs Dead). The UI map is enabled separately when
+            // entering Menu state.
+            EnablePlayerMap();
 
             _move.performed         += OnMove;
             _move.canceled          += OnMove;
@@ -151,6 +174,10 @@ namespace OffAngle.Core
             _primary.performed      += OnSelectWeaponCategory;
             _sidearm.performed      += OnSelectWeaponCategory;
             _openLoadoutMenu.performed += OnOpenLoadoutMenu;
+
+            // UI map close menu (if it exists)
+            if (_uiCloseMenu != null)
+                _uiCloseMenu.performed += OnOpenLoadoutMenu; // Same event - toggle works in both states
         }
 
         private void OnDisable()
@@ -180,7 +207,20 @@ namespace OffAngle.Core
             _sidearm.performed      -= OnSelectWeaponCategory;
             _openLoadoutMenu.performed -= OnOpenLoadoutMenu;
 
-            _actionAsset?.Disable();
+            // UI map close menu (if it exists)
+            if (_uiCloseMenu != null)
+                _uiCloseMenu.performed -= OnOpenLoadoutMenu;
+
+            DisableAllMaps();
+        }
+
+        private void OnDestroy()
+        {
+            // Additional cleanup during despawn to prevent null references
+            if (_actionAsset != null && _actionAsset)
+            {
+                _actionAsset.Disable();
+            }
         }
 
         // ------------------------------------------------------------------
@@ -255,6 +295,63 @@ namespace OffAngle.Core
 
         private void OnOpenLoadoutMenu(InputAction.CallbackContext ctx)
             => OpenLoadoutMenuStarted?.Invoke();
+
+        // ------------------------------------------------------------------
+        // Action map control (called by PlayerInputStateController)
+        // ------------------------------------------------------------------
+
+        /// <summary>Enable the Player action map for gameplay input.</summary>
+        public void EnablePlayerMap()
+        {
+            if (_playerMap == null) return;
+            _playerMap.Enable();
+        }
+
+        /// <summary>Enable the UI action map for menu navigation input.</summary>
+        public void EnableUIMap()
+        {
+            if (_uiMap == null) return;
+            _uiMap.Enable();
+        }
+
+        /// <summary>
+        /// Disable gameplay actions while keeping WeaponMenu enabled so the same
+        /// key can open AND close the menu without requiring a duplicate UI binding.
+        /// </summary>
+        public void DisablePlayerMap()
+        {
+            if (_playerMap == null) return;
+
+            // Keep the map enabled; selectively disable gameplay actions.
+            // Fully disabling the map would also kill WeaponMenu (P), trapping
+            // the player in menu state.
+            if (!_playerMap.enabled)
+                _playerMap.Enable();
+
+            foreach (InputAction action in _playerMap.actions)
+            {
+                if (action == _openLoadoutMenu)
+                    continue;
+                action.Disable();
+            }
+
+            _openLoadoutMenu?.Enable();
+        }
+
+        /// <summary>Disable the UI action map (stops menu navigation input events).</summary>
+        public void DisableUIMap()
+        {
+            if (_uiMap != null && _uiMap.enabled)
+                _uiMap.Disable();
+        }
+
+        /// <summary>Disable all action maps (used for death state or full input lockout).</summary>
+        public void DisableAllMaps()
+        {
+            if (_playerMap != null)
+                _playerMap.Disable();
+            DisableUIMap();
+        }
 
         private void ResolveActionAsset()
         {

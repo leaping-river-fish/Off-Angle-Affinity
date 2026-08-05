@@ -58,6 +58,9 @@ namespace OffAngle.Networking
         [Tooltip("Optional. When assigned, CmdFire/CmdReload reject requests while this reports the player as dead - a server-side backstop in case a modified client bypasses the owner-side Gun lock.")]
         [SerializeField] private PlayerLifecycleController _lifecycle;
 
+        [Tooltip("Optional. Leave null to auto-resolve. Used to gate input by state (only fire during Gameplay state).")]
+        [SerializeField] private PlayerInputStateController _stateController;
+
         [Header("Server validation")]
         [Tooltip("Fraction of the fire interval the server allows as jitter grace. 0.05 = 5% early accepted.")]
         [SerializeField, Range(0f, 0.5f)] private float _serverFireRateGrace = 0.05f;
@@ -149,6 +152,9 @@ namespace OffAngle.Networking
             _inputReader.FireCanceled += HandleFireCanceled;
             _inputReader.ReloadStarted += HandleReloadStarted;
 
+            if (_stateController != null)
+                _stateController.OnStateChanged += HandleInputStateChanged;
+
             // _gun may still be unassigned here if PlayerWeaponEquipper hasn't
             // equipped a weapon yet - SetGun() picks up these subscriptions
             // once it does.
@@ -164,6 +170,9 @@ namespace OffAngle.Networking
             _inputReader.FireStarted -= HandleFireStarted;
             _inputReader.FireCanceled -= HandleFireCanceled;
             _inputReader.ReloadStarted -= HandleReloadStarted;
+
+            if (_stateController != null)
+                _stateController.OnStateChanged -= HandleInputStateChanged;
 
             UnsubscribeFromGun();
         }
@@ -296,12 +305,18 @@ namespace OffAngle.Networking
 
         private void Awake()
         {
+            if (_stateController == null)
+                _stateController = GetComponentInParent<PlayerInputStateController>();
+
             _magazineAmmo.OnChange += HandleAmmoIntChanged;
             _reserveAmmo.OnChange  += HandleAmmoIntChanged;
             _isReloading.OnChange  += HandleReloadingChanged;
         }
         private void OnDestroy()
         {
+            if (_stateController != null)
+                _stateController.OnStateChanged -= HandleInputStateChanged;
+
             _magazineAmmo.OnChange -= HandleAmmoIntChanged;
             _reserveAmmo.OnChange  -= HandleAmmoIntChanged;
             _isReloading.OnChange  -= HandleReloadingChanged;
@@ -354,6 +369,10 @@ namespace OffAngle.Networking
 
         private void HandleFireStarted()
         {
+            // Gate input by state: only allow firing during Gameplay
+            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
+                return;
+
             if (_gun == null || _gun.Data == null) return;
             _gun.StartFire();
         }
@@ -365,6 +384,10 @@ namespace OffAngle.Networking
         }
         private void HandleReloadStarted()
         {
+            // Gate input by state: only allow reload during Gameplay
+            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
+                return;
+
             if (_gun == null) return;
             if (!_gun.CanReload()) return;
 
@@ -622,6 +645,36 @@ namespace OffAngle.Networking
             // copies clear their line (they never receive SetGun).
             _ownerBeamHeld = false;
             ShotEvents.RaiseBeamStopped(base.NetworkObject, _gun != null ? _gun.Data : null);
+        }
+
+        // ------------------------------------------------------------------
+        // Input state integration
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// React to PlayerInputStateController state changes. Stop any ongoing
+        /// fire (automatic or beam) when entering Menu or Dead state to prevent
+        /// the player from continuing to shoot while the menu is open or after death.
+        /// </summary>
+        private void HandleInputStateChanged(PlayerInputState oldState, PlayerInputState newState)
+        {
+            // Only the owner handles input state changes (remote players don't fire locally)
+            if (!base.IsOwner) return;
+
+            // Stop ongoing fire when leaving Gameplay state
+            if (oldState == PlayerInputState.Gameplay && newState != PlayerInputState.Gameplay)
+            {
+                // Stop automatic fire or held fire button
+                if (_gun != null)
+                    _gun.StopFire();
+
+                // Stop beam fire if active
+                if (_ownerBeamHeld)
+                {
+                    _ownerBeamHeld = false;
+                    CmdBeamStop();
+                }
+            }
         }
 
         // ------------------------------------------------------------------

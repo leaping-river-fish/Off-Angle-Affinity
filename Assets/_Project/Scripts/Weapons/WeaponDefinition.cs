@@ -26,6 +26,9 @@ namespace OffAngle.Weapons
         [Tooltip("Label shown in the weapon choice UI.")]
         public string DisplayName;
 
+        [Tooltip("Optional icon sprite displayed in the weapon choice UI. Leave null to show text only.")]
+        public Sprite Icon;
+
         [Tooltip("Which category (Primary, Sidearm, ...) this weapon can be equipped into.")]
         public WeaponCategory Category;
 

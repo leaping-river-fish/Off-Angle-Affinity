@@ -39,6 +39,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using OffAngle.Movement.States;
+using OffAngle.Core;
 
 namespace OffAngle.Movement
 {
@@ -47,6 +48,7 @@ namespace OffAngle.Movement
         private MovementStateContext                        _ctx;
         private IMovementState                              _current;
         private Dictionary<MovementStateId, IMovementState> _states;
+        private PlayerInputStateController                  _stateController;
 
         // ------------------------------------------------------------------
         // Initialization — called by PlayerController.Awake()
@@ -56,6 +58,14 @@ namespace OffAngle.Movement
         {
             _ctx    = ctx;
             _states = new Dictionary<MovementStateId, IMovementState>();
+
+            // Auto-resolve the state controller from the same GameObject/parent
+            if (_stateController == null)
+                _stateController = GetComponent<PlayerInputStateController>();
+
+            // Subscribe to state changes to enable/disable movement appropriately
+            if (_stateController != null)
+                _stateController.OnStateChanged += HandleInputStateChanged;
 
             // ── Phase 1: fully implemented states ────────────────────────
             Register(new GroundedState());
@@ -389,6 +399,54 @@ namespace OffAngle.Movement
         private void Register(IMovementState state)
         {
             _states[state.StateId] = state;
+        }
+
+        private void OnDestroy()
+        {
+            if (_stateController != null)
+                _stateController.OnStateChanged -= HandleInputStateChanged;
+        }
+
+        // ------------------------------------------------------------------
+        // Input state integration
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// React to PlayerInputStateController state changes. Movement is
+        /// only active during Gameplay state; Menu and Dead states disable
+        /// movement updates and clear transient input.
+        /// </summary>
+        private void HandleInputStateChanged(PlayerInputState oldState, PlayerInputState newState)
+        {
+            switch (newState)
+            {
+                case PlayerInputState.Gameplay:
+                    // Re-enable movement when returning to gameplay from menu or respawn.
+                    // This component's enabled state controls whether Update/FixedUpdate run.
+                    enabled = true;
+                    // Clear any stale input that accumulated while disabled (e.g., a jump
+                    // press during death that would otherwise fire on respawn).
+                    ResetTransientInput();
+                    break;
+
+                case PlayerInputState.Menu:
+                    // Disable movement updates while in menu. Ongoing actions (slide,
+                    // grapple, sprint) naturally resolve when Update/FixedUpdate stop.
+                    // Input flags are cleared so closing the menu doesn't immediately
+                    // trigger buffered actions.
+                    enabled = false;
+                    ResetTransientInput();
+                    break;
+
+                case PlayerInputState.Dead:
+                    // Disable movement updates during death. PlayerLifecycleController
+                    // also explicitly calls ResetTransientInput and disables this component
+                    // as part of its death handling - this is a secondary enforcement via
+                    // the state system to ensure consistent behavior.
+                    enabled = false;
+                    ResetTransientInput();
+                    break;
+            }
         }
     }
 }
