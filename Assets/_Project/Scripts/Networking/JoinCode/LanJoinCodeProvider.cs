@@ -6,6 +6,7 @@
 
 using System;
 using System.Net;
+using UnityEngine;
 
 namespace OffAngle.Networking.JoinCode
 {
@@ -15,11 +16,18 @@ namespace OffAngle.Networking.JoinCode
         {
             code = null;
 
-            if (!LocalIPv4Resolver.TryGetBestLocalIPv4(out IPAddress localIp, out _))
+            if (!LocalIPv4Resolver.TryGetBestLocalIPv4(out IPAddress localIp, out var candidates))
             {
                 errorReason = "Could not determine a LAN IP address";
                 return false;
             }
+
+            // TEMP DIAGNOSTIC — remove once cross-device connect issues are resolved.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[LanJoinCodeProvider] Chosen host IP: {localIp}:{hostPort}. All candidates:");
+            foreach (var c in candidates)
+                sb.AppendLine($"  {c.Address} (score {c.Score})");
+            Debug.Log(sb.ToString());
 
             if (!LanJoinCodec.TryEncode(localIp, hostPort, out code))
             {
