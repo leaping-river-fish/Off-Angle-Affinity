@@ -132,7 +132,14 @@ namespace OffAngle.UI
             // "Enter a server address" for an empty field. Silently substituting
             // a default here previously meant an empty field connected to
             // 127.0.0.1 without any indication that nothing was actually typed.
-            _controller.StartClient(_addressField != null ? _addressField.text : null);
+            string typed = _addressField != null ? _addressField.text : null;
+
+            // TEMP DIAGNOSTIC -- remove once "Enter a server address" false
+            // positives are confirmed fixed. Shows exactly what the field held
+            // at the moment Join was clicked.
+            Debug.Log($"[NetworkMenuUI] OnJoinClicked: _addressField.text = '{typed}' (null: {_addressField == null}, length: {typed?.Length ?? -1})");
+
+            _controller.StartClient(typed);
         }
 
         // Returns the address field's contents only when they parse as a bare
