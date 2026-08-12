@@ -2,17 +2,20 @@
 // PlayerSpawner — server-only spawner for the player prefab.
 //
 // ARCHITECTURE:
-//   Subscribes to ServerManager.OnRemoteConnectionState. When any client
-//   (including the host's own loopback client) enters the Started state, the
-//   spawner picks a random spawn point and calls Spawn(obj, conn),
-//   which atomically instantiates the prefab AND assigns the connecting peer
-//   as its owner. That ownership assignment is what later lets
-//   NetworkPlayerController distinguish IsOwner from a remote view.
+//   Subscribes to ServerManager.OnRemoteConnectionState. Before the match
+//   starts, a connection reaching Started (including the host's own loopback
+//   client) is only queued -- nothing spawns yet, so players stay lobby-
+//   locked. When the host's Lobby Menu raises StartGameRequested, SpawnAll()
+//   fires once: every queued connection gets a shuffled, non-repeating spawn
+//   point (first-mode deathmatch wants guaranteed-unique starts). Connections
+//   that arrive after the match has started (join-in-progress) spawn
+//   immediately at a random point, same as the original always-spawn-on-
+//   connect behavior.
 //
 //   Despawn-on-disconnect is handled automatically by FishNet because the
-//   prefab has a NetworkObject and the spawn passes a connection. No manual
-//   tracking is needed for the foundation pass; if we add lobby/replay
-//   features later, this is where that bookkeeping would live.
+//   prefab has a NetworkObject and the spawn passes a connection. A
+//   connection that disconnects while still queued (pre-start) is simply
+//   dropped from the queue.
 //
 // WHY THIS LIVES ON A REGULAR MonoBehaviour:
 //   The spawner is server-side infrastructure tied to the scene, not a
@@ -27,12 +30,16 @@
 //   4. Create 2-4 empty GameObjects positioned where you want spawns, drag
 //      them into _spawnPoints. (Leaving the array empty falls back to the
 //      world origin — fine for first-light testing.)
+//   5. Drag the scene's Lobby Menu instance into _lobbyMenu so its Start Game
+//      button can trigger SpawnAll().
 // =============================================================================
 
+using System.Collections.Generic;
 using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Transporting;
+using OffAngle.UI;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -47,6 +54,10 @@ namespace OffAngle.Networking
         [Tooltip("Empty Transforms placed in the scene. Leave empty to spawn everyone at world origin (useful for first smoke test).")]
         [SerializeField] private Transform[] _spawnPoints;
 
+        [Header("Match Start")]
+        [Tooltip("The scene's Lobby Menu. Its Start Game button (host-only) triggers SpawnAll().")]
+        [SerializeField] private LobbyMenuUI _lobbyMenu;
+
         // ------------------------------------------------------------------
         // Scene singleton — Respawner queries GetSpawnPoint() here.
         // ------------------------------------------------------------------
@@ -57,6 +68,9 @@ namespace OffAngle.Networking
         /// only exists once the gameplay scene is loaded.
         /// </summary>
         public static PlayerSpawner Instance { get; private set; }
+
+        private readonly List<NetworkConnection> _pendingConnections = new List<NetworkConnection>();
+        private bool _hasGameStarted;
 
         private void Awake()
         {
@@ -94,13 +108,24 @@ namespace OffAngle.Networking
                 return;
             }
 
+            if (_lobbyMenu == null)
+            {
+                Debug.LogError($"[{nameof(PlayerSpawner)}] _lobbyMenu is not assigned.", this);
+                enabled = false;
+                return;
+            }
+
             InstanceFinder.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
+            _lobbyMenu.StartGameRequested += HandleStartGameRequested;
         }
 
         private void OnDestroy()
         {
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
+
+            if (_lobbyMenu != null)
+                _lobbyMenu.StartGameRequested -= HandleStartGameRequested;
 
             if (Instance == this)
                 Instance = null;
@@ -134,19 +159,72 @@ namespace OffAngle.Networking
             if (!InstanceFinder.IsServerStarted)
                 return;
 
-            if (args.ConnectionState != RemoteConnectionState.Started)
+            if (args.ConnectionState == RemoteConnectionState.Started)
+            {
+                if (_hasGameStarted)
+                    SpawnFor(conn, null);
+                else if (!_pendingConnections.Contains(conn))
+                    _pendingConnections.Add(conn);
+            }
+            else if (args.ConnectionState == RemoteConnectionState.Stopped)
+            {
+                _pendingConnections.Remove(conn);
+            }
+        }
+
+        // Defensive — same reasoning as OnRemoteConnectionState above: the
+        // Start Game button is only interactable for the host, so this should
+        // never fire on a client, but a future refactor could change that.
+        private void HandleStartGameRequested()
+        {
+            if (!InstanceFinder.IsServerStarted || _hasGameStarted)
                 return;
 
-            SpawnFor(conn);
+            SpawnAll();
         }
 
         // ------------------------------------------------------------------
         // Spawn logic
         // ------------------------------------------------------------------
 
-        private void SpawnFor(NetworkConnection conn)
+        private void SpawnAll()
         {
-            (Vector3 position, Quaternion rotation) = NextSpawnPoint();
+            _hasGameStarted = true;
+
+            List<NetworkConnection> connections = new List<NetworkConnection>(_pendingConnections);
+            _pendingConnections.Clear();
+
+            List<Transform> shuffledPoints = null;
+            if (_spawnPoints != null && _spawnPoints.Length > 0)
+            {
+                shuffledPoints = new List<Transform>(_spawnPoints);
+                Shuffle(shuffledPoints);
+            }
+
+            for (int i = 0; i < connections.Count; i++)
+            {
+                Transform point = null;
+                if (shuffledPoints != null && shuffledPoints.Count > 0)
+                {
+                    if (i >= shuffledPoints.Count)
+                        Debug.LogWarning($"[{nameof(PlayerSpawner)}] {connections.Count} players but only {shuffledPoints.Count} spawn points; some will share a spawn point.");
+
+                    point = shuffledPoints[i % shuffledPoints.Count];
+                }
+
+                SpawnFor(connections[i], point);
+            }
+
+            // Every peer's lobby UI needs this, not just the host who
+            // clicked Start Game -- their own click never reaches anyone else.
+            LobbyPlayerList.Instance?.AnnounceGameStarted();
+        }
+
+        private void SpawnFor(NetworkConnection conn, Transform explicitPoint)
+        {
+            (Vector3 position, Quaternion rotation) = explicitPoint != null
+                ? (explicitPoint.position, explicitPoint.rotation)
+                : NextSpawnPoint();
 
             // Instantiating the prefab here creates a normal scene object on
             // the server. Spawn(instance, conn) is what promotes it into a
@@ -162,6 +240,15 @@ namespace OffAngle.Networking
                 return (Vector3.zero, Quaternion.identity);
 
             return (t.position, t.rotation);
+        }
+
+        private static void Shuffle(List<Transform> list)
+        {
+            for (int i = list.Count - 1; i > 0; i--)
+            {
+                int j = Random.Range(0, i + 1);
+                (list[i], list[j]) = (list[j], list[i]);
+            }
         }
     }
 }

@@ -1619,16 +1619,16 @@ MonoBehaviour:
     StandCheckMask:
       serializedVersion: 2
       m_Bits: 55
-    WallRunEntrySpeed: 7
-    WallRunMinSpeed: 6
+    WallRunEntrySpeed: 10
+    WallRunMinSpeed: 7
     WallRunDuration: 2
     WallRunAcceleration: 14
     WallRunMaxSpeed: 12
     WallRunGravityScale: 0.2
-    WallDetectionDistance: 0.95
-    WallAngleTolerance: 25
+    WallDetectionDistance: 0.8
+    WallAngleTolerance: 10
     SameWallContactTolerance: 1.5
-    WallReattachCooldown: 0.75
+    WallReattachCooldown: 1
     WallJumpExitLock: 0.2
     WallNormalSmoothingSpeed: 540
     WallJumpOutwardForce: 11
@@ -1680,7 +1680,7 @@ MonoBehaviour:
     Scale: {x: 0, y: 0, z: 0}
     IsValid: 0
   <IsNested>k__BackingField: 0
-  WasActiveDuringEdit: 1
+  WasActiveDuringEdit: 0
   WasActiveDuringEdit_Set1: 1
   <ComponentIndex>k__BackingField: 0
   <PredictedSpawn>k__BackingField: {fileID: 0}

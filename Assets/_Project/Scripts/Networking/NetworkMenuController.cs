@@ -22,8 +22,10 @@
 // =============================================================================
 
 using System;
+using System.Net;
 using FishNet;
 using FishNet.Transporting;
+using OffAngle.Networking.JoinCode;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -71,6 +73,9 @@ namespace OffAngle.Networking
         [Tooltip("Status message shown when no server address is provided.")]
         [SerializeField] private string _noAddressMessage = "Enter a server address";
 
+        [Tooltip("Status message shown when a join code could not be generated for the host.")]
+        [SerializeField] private string _joinCodeUnavailableMessage = "Couldn't generate a join code - share your IP instead";
+
         // ------------------------------------------------------------------
         // Public events
         // ------------------------------------------------------------------
@@ -83,6 +88,23 @@ namespace OffAngle.Networking
 
         /// <summary>Fires when the local client stops, with a short reason string.</summary>
         public event Action<string> Disconnected;
+
+        /// <summary>
+        /// Fires after StartHost or StartClient with a join code representing the
+        /// current session's address/port, or an empty string if one couldn't be
+        /// derived (e.g. connected via hostname rather than a bare IP). Intended
+        /// for a lobby UI to display so any peer can invite further friends.
+        /// </summary>
+        public event Action<string> SessionCodeReady;
+
+        // ------------------------------------------------------------------
+        // Join code provider
+        // ------------------------------------------------------------------
+
+        // Swap this implementation for a relay/rendezvous-backed provider
+        // when internet play (different networks) is added later; neither
+        // StartHost nor StartClient below need to change.
+        private readonly IJoinCodeProvider _joinCodeProvider = new LanJoinCodeProvider();
 
         // ------------------------------------------------------------------
         // Internal state tracking
@@ -136,6 +158,9 @@ namespace OffAngle.Networking
         // Public API (called by the UI)
         // ------------------------------------------------------------------
 
+        /// <summary>True on the peer that started the server (the host). Lets UI gate host-only actions (e.g. Start Game) without importing FishNet.</summary>
+        public bool IsHost => InstanceFinder.IsServerStarted;
+
         /// <summary>
         /// Host = server + local (loopback) client. The server is started
         /// first so the local client always has something to connect to.
@@ -156,6 +181,19 @@ namespace OffAngle.Networking
 
             RaiseStatus(_startingHostMessage);
 
+            // Read the transport's live/configured port (Tugboat) rather than
+            // hardcoding it, so a future port change needs no code edits here.
+            ushort port = InstanceFinder.NetworkManager.TransportManager.Transport.GetPort();
+            if (_joinCodeProvider.TryCreateHostCode(port, out string code, out string errorReason))
+            {
+                SessionCodeReady?.Invoke(code);
+            }
+            else
+            {
+                SessionCodeReady?.Invoke(string.Empty);
+                RaiseStatus(_joinCodeUnavailableMessage);
+            }
+
             // ServerManager.StartConnection() uses the port from the transport
             // component (Tugboat) on the same GameObject. It returns false on
             // e.g. a port bind failure; we don't branch on it here because the
@@ -166,10 +204,10 @@ namespace OffAngle.Networking
         }
 
         /// <summary>
-        /// Starts a client-only connection to the given server address.
-        /// The address is trimmed but not otherwise validated; Tugboat will
-        /// resolve hostnames and surface any DNS/parse failures via the
-        /// connection-state callback.
+        /// Starts a client-only connection using the given join code or raw
+        /// address. Text that decodes as a valid join code connects to the
+        /// address/port it encodes; anything else falls back to being treated
+        /// as a raw address, so typing a plain IP still works.
         /// </summary>
         public void StartClient(string address)
         {
@@ -197,7 +235,38 @@ namespace OffAngle.Networking
             // StartConnection returns true when the request was accepted, NOT
             // when the connection succeeded. The real result lands later in
             // HandleClientConnectionState.
-            InstanceFinder.ClientManager.StartConnection(trimmed);
+            _joinCodeProvider.ResolveCode(trimmed, resolution =>
+            {
+                string connectAddress;
+                ushort connectPort;
+
+                if (resolution.Success)
+                {
+                    connectAddress = resolution.Address;
+                    connectPort = resolution.Port;
+                    InstanceFinder.ClientManager.StartConnection(connectAddress, connectPort);
+                }
+                else
+                {
+                    connectAddress = trimmed;
+                    connectPort = InstanceFinder.NetworkManager.TransportManager.Transport.GetPort();
+                    InstanceFinder.ClientManager.StartConnection(trimmed);
+                }
+
+                RaiseSessionCodeFor(connectAddress, connectPort);
+            });
+        }
+
+        // Lets a joining client display the same short code back to the lobby
+        // (e.g. to invite another friend), by re-encoding whatever address/port
+        // it actually used to connect. Silently no-ops if the address isn't a
+        // bare IPv4 (e.g. a hostname like "localhost").
+        private void RaiseSessionCodeFor(string address, ushort port)
+        {
+            if (IPAddress.TryParse(address, out IPAddress ip) && LanJoinCodec.TryEncode(ip, port, out string code))
+                SessionCodeReady?.Invoke(code);
+            else
+                SessionCodeReady?.Invoke(string.Empty);
         }
 
         // ------------------------------------------------------------------
