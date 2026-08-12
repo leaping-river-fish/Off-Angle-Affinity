@@ -43,6 +43,16 @@ namespace OffAngle.Networking.JoinCode
                 if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
                     continue;
 
+                // Windows' virtual/pseudo adapters (Mobile Hotspot, Wi-Fi Direct)
+                // can report OperationalStatus.Up with a stale cached IPv4 long
+                // after they've actually disconnected. A real, currently-in-use
+                // connection always has a default gateway; a phantom one usually
+                // doesn't, so require one to filter these out.
+                bool hasIPv4Gateway = nic.GetIPProperties().GatewayAddresses
+                    .Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork);
+                if (!hasIPv4Gateway)
+                    continue;
+
                 foreach (UnicastIPAddressInformation unicast in nic.GetIPProperties().UnicastAddresses)
                 {
                     IPAddress ip = unicast.Address;
