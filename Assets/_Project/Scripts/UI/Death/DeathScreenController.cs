@@ -72,12 +72,8 @@ namespace OffAngle.UI.Death
         private void HandleLocalDied(DeathInfo info)
         {
             LastDeathInfo = info;
-            Debug.Log($"[{nameof(DeathScreenController)}] HandleLocalDied fired on '{name}'. _panel={(_panel != null ? _panel.name : "NULL")}, activeInHierarchy before SetActive={(_panel != null ? _panel.activeInHierarchy.ToString() : "n/a")}");
             if (_panel != null)
-            {
                 _panel.SetActive(true);
-                Debug.Log($"[{nameof(DeathScreenController)}] '{_panel.name}'.activeInHierarchy after SetActive(true)={_panel.activeInHierarchy}");
-            }
         }
 
         private void HandleLocalRespawned()
