@@ -315,7 +315,14 @@ namespace OffAngle.Networking
                 {
                     connectAddress = trimmed;
                     connectPort = InstanceFinder.NetworkManager.TransportManager.Transport.GetPort();
-                    InstanceFinder.ClientManager.StartConnection(trimmed);
+
+                    // Must pass connectPort explicitly via the two-arg overload.
+                    // The one-arg StartConnection(address) only sets the address
+                    // and leaves the transport's port at whatever it was last set
+                    // to -- so a prior attempt with a join code (even a failed one
+                    // that still decoded to *some* port) silently corrupts every
+                    // later raw-address attempt in the same session.
+                    InstanceFinder.ClientManager.StartConnection(trimmed, connectPort);
                 }
 
                 RaiseSessionCodeFor(connectAddress, connectPort);
