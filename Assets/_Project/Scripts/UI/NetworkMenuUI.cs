@@ -46,7 +46,7 @@ namespace OffAngle.UI
         [SerializeField] private TMP_Text        _statusText;
 
         [Header("Defaults")]
-        [Tooltip("Default address used when the input field is empty. The field will show placeholder text instead of actual text.")]
+        [Tooltip("Shown as greyed-out placeholder text in the empty address field -- a format hint only, never submitted as real input.")]
         [SerializeField] private string _defaultAddress = "127.0.0.1";
 
         // ------------------------------------------------------------------
@@ -55,9 +55,16 @@ namespace OffAngle.UI
 
         private void Awake()
         {
-            // Clear any initial text so the placeholder shows instead
+            // Clear any initial text so the placeholder shows instead. The
+            // placeholder itself is set here (rather than left as a static
+            // Inspector value) so this is the one place that decides what it
+            // says, keeping it in sync with _defaultAddress.
             if (_addressField != null)
+            {
                 _addressField.text = "";
+                if (_addressField.placeholder is TMP_Text placeholderText)
+                    placeholderText.text = _defaultAddress;
+            }
 
             // AddListener rather than assigning onClick so any UnityEvents
             // authored in the inspector still fire alongside this script.
@@ -121,11 +128,11 @@ namespace OffAngle.UI
                 return;
             }
 
-            // Use default address if field is empty
-            string address = _addressField != null && !string.IsNullOrWhiteSpace(_addressField.text) 
-                ? _addressField.text 
-                : _defaultAddress;
-            _controller.StartClient(address);
+            // Pass the field's text through as-is -- StartClient already shows
+            // "Enter a server address" for an empty field. Silently substituting
+            // a default here previously meant an empty field connected to
+            // 127.0.0.1 without any indication that nothing was actually typed.
+            _controller.StartClient(_addressField != null ? _addressField.text : null);
         }
 
         // Returns the address field's contents only when they parse as a bare

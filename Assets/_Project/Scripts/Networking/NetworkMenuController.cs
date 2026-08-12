@@ -121,10 +121,8 @@ namespace OffAngle.Networking
         // Internal state tracking
         // ------------------------------------------------------------------
 
-        // Previous FishNet client state, used to distinguish "failed to
-        // connect" (Starting → Stopped) from "disconnected after connecting"
-        // (Started → Stopping → Stopped).
-        private LocalConnectionState _lastClientState = LocalConnectionState.Stopped;
+        // Whether this attempt ever reached Started -- distinguishes "failed to
+        // connect" from "disconnected after connecting."
         private bool _hasReachedStarted;
 
         // Set between StartHost and the server reporting Started/Stopped. The
@@ -353,9 +351,6 @@ namespace OffAngle.Networking
 
         private void HandleClientConnectionState(ClientConnectionStateArgs args)
         {
-            LocalConnectionState previous = _lastClientState;
-            _lastClientState = args.ConnectionState;
-
             switch (args.ConnectionState)
             {
                 case LocalConnectionState.Starting:
@@ -373,16 +368,13 @@ namespace OffAngle.Networking
                     break;
 
                 case LocalConnectionState.Stopped:
-                    // Classify why we stopped:
-                    //   - We reached Started at some point → clean/unclean drop.
-                    //   - We only reached Starting → the transport rejected the
-                    //     attempt (bad IP, unreachable host, port bind failure
-                    //     in host mode, etc.).
-                    string reason = _hasReachedStarted
-                        ? _disconnectedMessage
-                        : previous == LocalConnectionState.Starting
-                            ? _connectionFailedMessage
-                            : _stoppedMessage;
+                    // Classify why we stopped: reaching Started at some point
+                    // means a real connection existed and then dropped; never
+                    // reaching it means the attempt itself failed. FishNet always
+                    // passes through Stopping before Stopped even on a failed
+                    // attempt (Starting → Stopping → Stopped), so "previous"
+                    // is never a reliable signal here -- _hasReachedStarted is.
+                    string reason = _hasReachedStarted ? _disconnectedMessage : _connectionFailedMessage;
 
                     _hasReachedStarted = false;
                     RaiseStatus(reason);
