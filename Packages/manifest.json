@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.firstgeargames.fishnet": "https://github.com/FirstGearGames/FishNet.git?path=Assets/FishNet",
+    "com.firstgeargames.fishnet": "https://github.com/FirstGearGames/FishNet.git?path=Assets/FishNet#de19b5d66459f60400ffd0edc443c4da173a01e7",
     "com.unity.2d.sprite": "1.0.0",
     "com.unity.ai.navigation": "2.0.13",
     "com.unity.cinemachine": "3.1.7",

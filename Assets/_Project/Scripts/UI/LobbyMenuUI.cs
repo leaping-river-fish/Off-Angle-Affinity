@@ -43,6 +43,11 @@ namespace OffAngle.UI
 
         private readonly List<PlayerRowUI> _rows = new List<PlayerRowUI>();
 
+        // Code and address arrive as two separate events, so both are kept and
+        // the label is rebuilt from scratch whenever either changes.
+        private string _sessionCode = "";
+        private string _hostAddress = "";
+
         private void Awake()
         {
             if (_panelRoot != null)
@@ -60,6 +65,7 @@ namespace OffAngle.UI
             _controller.Connected += HandleConnected;
             _controller.Disconnected += HandleDisconnected;
             _controller.SessionCodeReady += HandleSessionCodeReady;
+            _controller.HostAddressReady += HandleHostAddressReady;
         }
 
         private void OnDisable()
@@ -70,6 +76,7 @@ namespace OffAngle.UI
             _controller.Connected -= HandleConnected;
             _controller.Disconnected -= HandleDisconnected;
             _controller.SessionCodeReady -= HandleSessionCodeReady;
+            _controller.HostAddressReady -= HandleHostAddressReady;
 
             UnsubscribeFromPlayerList();
         }
@@ -103,16 +110,41 @@ namespace OffAngle.UI
             UnsubscribeFromPlayerList();
             ClearRows();
 
-            if (_codeText != null)
-                _codeText.text = "";
+            _sessionCode = "";
+            _hostAddress = "";
+            RefreshCodeText();
         }
 
         private void HandleSessionCodeReady(string code)
         {
+            _sessionCode = code ?? "";
+            RefreshCodeText();
+        }
+
+        private void HandleHostAddressReady(string address)
+        {
+            _hostAddress = address ?? "";
+            RefreshCodeText();
+        }
+
+        // The address is shown under the code on purpose. If the LAN IP resolver
+        // ever picks the wrong adapter the code still looks perfectly valid, and
+        // the joiner just sees "Connection failed" -- indistinguishable from a
+        // blocked port. Showing the actual IP makes that case obvious on sight.
+        private void RefreshCodeText()
+        {
             if (_codeText == null)
                 return;
 
-            _codeText.text = string.IsNullOrEmpty(code) ? "" : $"Code: {code}";
+            if (string.IsNullOrEmpty(_sessionCode))
+            {
+                _codeText.text = "";
+                return;
+            }
+
+            _codeText.text = string.IsNullOrEmpty(_hostAddress)
+                ? $"Code: {_sessionCode}"
+                : $"Code: {_sessionCode}\n<size=70%>{_hostAddress}</size>";
         }
 
         // ------------------------------------------------------------------

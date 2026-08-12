@@ -20,6 +20,8 @@
 //   defensively but cannot function without them.
 // =============================================================================
 
+using System.Net;
+using System.Net.Sockets;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -103,7 +105,12 @@ namespace OffAngle.UI
                 return;
             }
 
-            _controller.StartHost();
+            // Host and Join share one address field, so whatever is sitting in
+            // it may well be a join code from a previous attempt. Only treat it
+            // as a host IP override when it is a bare IPv4; anything else is
+            // ignored so a leftover code can't break hosting. Blank (the common
+            // case) means StartHost auto-detects as before.
+            _controller.StartHost(ReadIPv4Override());
         }
 
         private void OnJoinClicked()
@@ -119,6 +126,21 @@ namespace OffAngle.UI
                 ? _addressField.text 
                 : _defaultAddress;
             _controller.StartClient(address);
+        }
+
+        // Returns the address field's contents only when they parse as a bare
+        // IPv4, otherwise null. Escape hatch for when LAN IP auto-detection
+        // picks the wrong network adapter.
+        private string ReadIPv4Override()
+        {
+            if (_addressField == null || string.IsNullOrWhiteSpace(_addressField.text))
+                return null;
+
+            string trimmed = _addressField.text.Trim();
+            bool isIPv4 = IPAddress.TryParse(trimmed, out IPAddress parsed) &&
+                          parsed.AddressFamily == AddressFamily.InterNetwork;
+
+            return isIPv4 ? trimmed : null;
         }
 
         // ------------------------------------------------------------------

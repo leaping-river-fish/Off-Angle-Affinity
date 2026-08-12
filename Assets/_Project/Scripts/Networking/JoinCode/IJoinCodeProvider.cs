@@ -15,9 +15,44 @@ namespace OffAngle.Networking.JoinCode
 {
     public interface IJoinCodeProvider
     {
-        bool TryCreateHostCode(ushort hostPort, out string code, out string errorReason);
+        /// <summary>
+        /// manualIpOverride: if non-empty and a valid IPv4, used directly instead
+        /// of auto-detecting the host's LAN IP. Escape hatch for when the
+        /// auto-detection heuristic picks the wrong network adapter.
+        /// </summary>
+        HostCodeResult CreateHostCode(ushort hostPort, string manualIpOverride);
 
         void ResolveCode(string code, Action<JoinCodeResolution> onResolved);
+    }
+
+    public readonly struct HostCodeResult
+    {
+        public bool Success { get; }
+        public string Code { get; }
+
+        /// <summary>
+        /// The IPv4 baked into <see cref="Code"/>. Shown alongside the code so a
+        /// host can confirm at a glance that the right adapter was picked --
+        /// a wrong-but-plausible IP here is otherwise indistinguishable from a
+        /// blocked port, and both present as "Connection failed" on the joiner.
+        /// </summary>
+        public string HostAddress { get; }
+
+        public string ErrorReason { get; }
+
+        private HostCodeResult(bool success, string code, string hostAddress, string errorReason)
+        {
+            Success = success;
+            Code = code;
+            HostAddress = hostAddress;
+            ErrorReason = errorReason;
+        }
+
+        public static HostCodeResult Succeeded(string code, string hostAddress) =>
+            new HostCodeResult(true, code, hostAddress, null);
+
+        public static HostCodeResult Failed(string errorReason) =>
+            new HostCodeResult(false, null, null, errorReason);
     }
 
     public readonly struct JoinCodeResolution

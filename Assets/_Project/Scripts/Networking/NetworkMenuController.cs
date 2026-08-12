@@ -76,6 +76,9 @@ namespace OffAngle.Networking
         [Tooltip("Status message shown when a join code could not be generated for the host.")]
         [SerializeField] private string _joinCodeUnavailableMessage = "Couldn't generate a join code - share your IP instead";
 
+        [Tooltip("Status message shown when the server could not bind its port (usually the port is already in use, or a firewall blocked it).")]
+        [SerializeField] private string _serverStartFailedMessage = "Server failed to start - port may be in use";
+
         // ------------------------------------------------------------------
         // Public events
         // ------------------------------------------------------------------
@@ -97,6 +100,14 @@ namespace OffAngle.Networking
         /// </summary>
         public event Action<string> SessionCodeReady;
 
+        /// <summary>
+        /// Fires alongside SessionCodeReady with the raw "ip:port" the code
+        /// encodes, or an empty string if unknown. Displaying this next to the
+        /// code is what makes a wrong-adapter pick visible: a bad IP and a
+        /// blocked port both look identical from the joining side otherwise.
+        /// </summary>
+        public event Action<string> HostAddressReady;
+
         // ------------------------------------------------------------------
         // Join code provider
         // ------------------------------------------------------------------
@@ -115,6 +126,12 @@ namespace OffAngle.Networking
         // (Started → Stopping → Stopped).
         private LocalConnectionState _lastClientState = LocalConnectionState.Stopped;
         private bool _hasReachedStarted;
+
+        // Set between StartHost and the server reporting Started/Stopped. The
+        // join code and the loopback client are both deferred until then, so a
+        // failed bind can never hand out a code for a server nobody can reach.
+        private bool _awaitingHostServerStart;
+        private string _pendingHostIpOverride;
 
         // ------------------------------------------------------------------
         // Unity lifecycle
@@ -135,13 +152,16 @@ namespace OffAngle.Networking
                 return;
             }
 
-            // Only the client-side event is required for menu behavior:
+            // Client-side event drives menu behavior:
             //   - Client goes Starting → Started         → menu hides.
             //   - Client goes Starting → Stopped         → "Connection failed".
             //   - Client goes Started  → Stopping/Stopped → "Disconnected".
-            // A server-side bind failure in host mode still surfaces here as a
-            // failed client connection (no one is listening on 127.0.0.1).
             InstanceFinder.ClientManager.OnClientConnectionState += HandleClientConnectionState;
+
+            // The server side is needed too: Tugboat's StartConnection returns
+            // true even when the socket fails to bind (ServerSocket.cs:265), so
+            // the only reliable success signal is the state callback.
+            InstanceFinder.ServerManager.OnServerConnectionState += HandleServerConnectionState;
 
             RaiseStatus(_idleMessage);
         }
@@ -150,8 +170,14 @@ namespace OffAngle.Networking
         {
             // Guard: NetworkManager may already have been destroyed if scenes
             // are unloading in a different order.
-            if (InstanceFinder.NetworkManager != null && InstanceFinder.ClientManager != null)
+            if (InstanceFinder.NetworkManager == null)
+                return;
+
+            if (InstanceFinder.ClientManager != null)
                 InstanceFinder.ClientManager.OnClientConnectionState -= HandleClientConnectionState;
+
+            if (InstanceFinder.ServerManager != null)
+                InstanceFinder.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
         }
 
         // ------------------------------------------------------------------
@@ -164,8 +190,11 @@ namespace OffAngle.Networking
         /// <summary>
         /// Host = server + local (loopback) client. The server is started
         /// first so the local client always has something to connect to.
+        /// manualIpOverride: optional. If non-empty, used as the host's LAN IP
+        /// in the join code instead of auto-detecting one — escape hatch for
+        /// when auto-detection picks the wrong network adapter.
         /// </summary>
-        public void StartHost()
+        public void StartHost(string manualIpOverride = null)
         {
             if (InstanceFinder.ServerManager == null || InstanceFinder.ClientManager == null)
             {
@@ -181,26 +210,62 @@ namespace OffAngle.Networking
 
             RaiseStatus(_startingHostMessage);
 
-            // Read the transport's live/configured port (Tugboat) rather than
-            // hardcoding it, so a future port change needs no code edits here.
-            ushort port = InstanceFinder.NetworkManager.TransportManager.Transport.GetPort();
-            if (_joinCodeProvider.TryCreateHostCode(port, out string code, out string errorReason))
+            // Everything past this point is deferred to HandleServerConnectionState.
+            // Announcing a join code before the server has actually bound is
+            // actively harmful: it sends the other player off debugging their
+            // own machine for a server that was never listening.
+            _awaitingHostServerStart = true;
+            _pendingHostIpOverride = manualIpOverride;
+
+            // Uses the port from the transport component (Tugboat) on the same
+            // GameObject. The bool it returns is not a bind result -- Tugboat
+            // returns true unconditionally -- so it is deliberately ignored.
+            InstanceFinder.ServerManager.StartConnection();
+        }
+
+        // Runs once the server socket reports its real result. Started means the
+        // port is bound and we can safely publish a code; Stopped straight out of
+        // Starting means the bind failed (port in use, or blocked).
+        private void HandleServerConnectionState(ServerConnectionStateArgs args)
+        {
+            if (!_awaitingHostServerStart)
+                return;
+
+            switch (args.ConnectionState)
             {
-                SessionCodeReady?.Invoke(code);
+                case LocalConnectionState.Started:
+                    _awaitingHostServerStart = false;
+                    AnnounceHostCode();
+                    InstanceFinder.ClientManager.StartConnection("127.0.0.1");
+                    break;
+
+                case LocalConnectionState.Stopped:
+                    _awaitingHostServerStart = false;
+                    SessionCodeReady?.Invoke(string.Empty);
+                    RaiseStatus(_serverStartFailedMessage);
+                    break;
+            }
+        }
+
+        // Read the transport's live/configured port (Tugboat) rather than
+        // hardcoding it, so a future port change needs no code edits here.
+        private void AnnounceHostCode()
+        {
+            ushort port = InstanceFinder.NetworkManager.TransportManager.Transport.GetPort();
+            HostCodeResult result = _joinCodeProvider.CreateHostCode(port, _pendingHostIpOverride);
+            _pendingHostIpOverride = null;
+
+            if (result.Success)
+            {
+                SessionCodeReady?.Invoke(result.Code);
+                HostAddressReady?.Invoke($"{result.HostAddress}:{port}");
             }
             else
             {
                 SessionCodeReady?.Invoke(string.Empty);
-                RaiseStatus(_joinCodeUnavailableMessage);
+                HostAddressReady?.Invoke(string.Empty);
+                RaiseStatus($"{_joinCodeUnavailableMessage} ({result.ErrorReason})");
             }
-
-            // ServerManager.StartConnection() uses the port from the transport
-            // component (Tugboat) on the same GameObject. It returns false on
-            // e.g. a port bind failure; we don't branch on it here because the
-            // ClientManager below will emit Starting → Stopped in that case,
-            // which the shared state handler already reports as a failure.
-            InstanceFinder.ServerManager.StartConnection();
-            InstanceFinder.ClientManager.StartConnection("127.0.0.1");
         }
 
         /// <summary>
@@ -264,9 +329,15 @@ namespace OffAngle.Networking
         private void RaiseSessionCodeFor(string address, ushort port)
         {
             if (IPAddress.TryParse(address, out IPAddress ip) && LanJoinCodec.TryEncode(ip, port, out string code))
+            {
                 SessionCodeReady?.Invoke(code);
+                HostAddressReady?.Invoke($"{address}:{port}");
+            }
             else
+            {
                 SessionCodeReady?.Invoke(string.Empty);
+                HostAddressReady?.Invoke(string.Empty);
+            }
         }
 
         // ------------------------------------------------------------------
