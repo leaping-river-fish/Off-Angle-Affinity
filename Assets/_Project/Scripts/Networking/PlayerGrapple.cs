@@ -61,6 +61,7 @@
 //   arbitrates ammo/rate/death and never re-validates movement state.
 // =============================================================================
 
+using System;
 using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
@@ -160,11 +161,21 @@ namespace OffAngle.Networking
             if (!base.IsOwner) return;
             if (_inputReader == null) return;
 
-            _inputReader.GrappleStarted -= HandleGrappleStarted;
-            _inputReader.GrappleCanceled -= HandleGrappleCanceled;
+            // Runs synchronously as part of FishNet's despawn broadcast - contain
+            // any exception here rather than letting it escape into the network
+            // transport.
+            try
+            {
+                _inputReader.GrappleStarted -= HandleGrappleStarted;
+                _inputReader.GrappleCanceled -= HandleGrappleCanceled;
 
-            if (_stateController != null)
-                _stateController.OnStateChanged -= HandleInputStateChanged;
+                if (_stateController != null)
+                    _stateController.OnStateChanged -= HandleInputStateChanged;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         // ------------------------------------------------------------------

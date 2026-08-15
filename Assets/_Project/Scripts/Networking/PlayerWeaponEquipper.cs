@@ -133,8 +133,15 @@ namespace OffAngle.Networking
 
         private void OnDestroy()
         {
-            _syncedDefinitionIds.OnChange -= HandleSyncedDefinitionIdsChanged;
-            _syncedActiveIndex.OnChange -= HandleSyncedActiveIndexChanged;
+            try
+            {
+                _syncedDefinitionIds.OnChange -= HandleSyncedDefinitionIdsChanged;
+                _syncedActiveIndex.OnChange -= HandleSyncedActiveIndexChanged;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         /// <summary>
@@ -181,12 +188,22 @@ namespace OffAngle.Networking
             base.OnStopClient();
             if (!base.IsOwner) return;
 
-            if (LoadoutManager.Instance != null)
-                LoadoutManager.Instance.SelectionChanged -= HandleSelectionChanged;
-            if (_inputReader != null)
+            // Runs synchronously as part of FishNet's despawn broadcast - contain
+            // any exception here rather than letting it escape into the network
+            // transport.
+            try
             {
-                _inputReader.SwitchWeaponEvent -= HandleSwitchWeapon;
-                _inputReader.SelectWeaponCategoryEvent -= HandleSelectWeaponCategory;
+                if (LoadoutManager.Instance != null)
+                    LoadoutManager.Instance.SelectionChanged -= HandleSelectionChanged;
+                if (_inputReader != null)
+                {
+                    _inputReader.SwitchWeaponEvent -= HandleSwitchWeapon;
+                    _inputReader.SelectWeaponCategoryEvent -= HandleSelectWeaponCategory;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
             }
         }
 

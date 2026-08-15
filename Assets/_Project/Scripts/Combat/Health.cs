@@ -76,7 +76,17 @@ namespace OffAngle.Combat
 
         private void OnDestroy()
         {
-            _current.OnChange -= HandleCurrentChanged;
+            // Runs synchronously as part of FishNet's despawn broadcast on every
+            // remaining peer - contain any exception here rather than letting it
+            // escape into the network transport.
+            try
+            {
+                _current.OnChange -= HandleCurrentChanged;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         public override void OnStartServer()
