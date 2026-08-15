@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FishNet.Object;
 using UnityEngine;
@@ -32,7 +33,18 @@ namespace OffAngle.Networking
         public override void OnStopClient()
         {
             base.OnStopClient();
-            SetVisible(true);
+
+            // Runs synchronously as part of FishNet's despawn broadcast on every
+            // remaining peer - contain any exception here rather than letting it
+            // escape into the network transport.
+            try
+            {
+                SetVisible(true);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         /// <summary>

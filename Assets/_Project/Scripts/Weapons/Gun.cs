@@ -73,12 +73,28 @@ namespace OffAngle.Weapons
         /// </summary>
         public bool CanFire()
         {
-            if (_locked) return false;
-            if (_data == null) return false;
-            if (_isReloading) return false;
-            if (_magazineAmmo <= 0) return false;
-            if (Time.time < _localCooldownUntil) return false;
+            if (_locked) { LogCantFire("locked"); return false; }
+            if (_data == null) { LogCantFire("no data"); return false; }
+            if (_isReloading) { LogCantFire("reloading"); return false; }
+            if (_magazineAmmo <= 0) { LogCantFire("empty magazine"); return false; }
+            if (Time.time < _localCooldownUntil) { LogCantFire("local cooldown"); return false; }
+            _lastLoggedCantFireReason = null;
             return true;
+        }
+
+        // Temporary diagnostic for the "shot silently dropped" bug (see
+        // PlayerWeaponController.LogFireRejected for the server-side
+        // counterpart). CanFire() is polled every Update() for
+        // Automatic/Burst fire modes, so this only logs when the failure
+        // reason actually changes to avoid flooding the console while a held
+        // trigger keeps failing for the same reason. Safe to remove once the
+        // root cause behind the "totally can't fire" reports is confirmed.
+        private string _lastLoggedCantFireReason;
+        private void LogCantFire(string reason)
+        {
+            if (_lastLoggedCantFireReason == reason) return;
+            _lastLoggedCantFireReason = reason;
+            Debug.Log($"[{nameof(Gun)}] {name} CanFire() failed: {reason}");
         }
 
         public bool CanReload()

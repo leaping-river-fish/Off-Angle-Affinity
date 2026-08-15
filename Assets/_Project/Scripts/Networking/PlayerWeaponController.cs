@@ -167,14 +167,24 @@ namespace OffAngle.Networking
             if (!base.IsOwner) return;
             if (_inputReader == null) return;
 
-            _inputReader.FireStarted -= HandleFireStarted;
-            _inputReader.FireCanceled -= HandleFireCanceled;
-            _inputReader.ReloadStarted -= HandleReloadStarted;
+            // Runs synchronously as part of FishNet's despawn broadcast - contain
+            // any exception here rather than letting it escape into the network
+            // transport.
+            try
+            {
+                _inputReader.FireStarted -= HandleFireStarted;
+                _inputReader.FireCanceled -= HandleFireCanceled;
+                _inputReader.ReloadStarted -= HandleReloadStarted;
 
-            if (_stateController != null)
-                _stateController.OnStateChanged -= HandleInputStateChanged;
+                if (_stateController != null)
+                    _stateController.OnStateChanged -= HandleInputStateChanged;
 
-            UnsubscribeFromGun();
+                UnsubscribeFromGun();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         private void Update()
@@ -247,6 +257,15 @@ namespace OffAngle.Networking
         {
             CancelReloadAndBeam();
 
+            // The fire-rate cooldown is a single field shared across every
+            // equipped weapon (see _serverNextAllowedFireTime's declaration).
+            // Without this reset, switching from a slow weapon to a fast one
+            // leaves the new weapon silently gated by the old weapon's
+            // cooldown window until it naturally expires - CmdFire just
+            // returns early with no feedback. A freshly-equipped weapon
+            // should start exactly like a freshly-spawned player does (0f).
+            _serverNextAllowedFireTime = 0f;
+
             if (previous != null)
             {
                 _ammoByGun[previous] = new AmmoSnapshot
@@ -314,12 +333,19 @@ namespace OffAngle.Networking
         }
         private void OnDestroy()
         {
-            if (_stateController != null)
-                _stateController.OnStateChanged -= HandleInputStateChanged;
+            try
+            {
+                if (_stateController != null)
+                    _stateController.OnStateChanged -= HandleInputStateChanged;
 
-            _magazineAmmo.OnChange -= HandleAmmoIntChanged;
-            _reserveAmmo.OnChange  -= HandleAmmoIntChanged;
-            _isReloading.OnChange  -= HandleReloadingChanged;
+                _magazineAmmo.OnChange -= HandleAmmoIntChanged;
+                _reserveAmmo.OnChange  -= HandleAmmoIntChanged;
+                _isReloading.OnChange  -= HandleReloadingChanged;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         public override void OnStartServer()
@@ -447,23 +473,43 @@ namespace OffAngle.Networking
         [ServerRpc]
         private void CmdFire(Vector3 origin, Vector3 direction)
         {
-            if (_gun == null || _gun.Data == null) return;
+            if (_gun == null || _gun.Data == null)
+            {
+                LogFireRejected("gun/data null");
+                return;
+            }
 
             // Defense in depth: the owner-side Gun lock should already stop this
             // RPC from ever being sent while dead, but the server never trusts
             // the client - re-check authoritative life state here too.
-            if (_lifecycle != null && _lifecycle.IsDead) return;
+            if (_lifecycle != null && _lifecycle.IsDead)
+            {
+                LogFireRejected("dead");
+                return;
+            }
 
             GunData data = _gun.Data;
 
             // Rate validation. Grace is small enough that the client can't reliably beat it.
             float now = Time.time;
-            if (now < _serverNextAllowedFireTime) return;
+            if (now < _serverNextAllowedFireTime)
+            {
+                LogFireRejected($"fire-rate cooldown ({_serverNextAllowedFireTime - now:F2}s remaining)");
+                return;
+            }
             float interval = (1f / Mathf.Max(0.01f, data.FireRate)) * (1f - _serverFireRateGrace);
             _serverNextAllowedFireTime = now + interval;
 
-            if (_isReloading.Value) return;
-            if (_magazineAmmo.Value <= 0) return;
+            if (_isReloading.Value)
+            {
+                LogFireRejected("reloading");
+                return;
+            }
+            if (_magazineAmmo.Value <= 0)
+            {
+                LogFireRejected("empty magazine");
+                return;
+            }
 
             _magazineAmmo.Value--;
 
@@ -475,12 +521,32 @@ namespace OffAngle.Networking
             ShotDeliveryKind kind = data.ShotBehavior != null ? data.ShotBehavior.Kind : ShotDeliveryKind.Instant;
             if (kind != ShotDeliveryKind.Instant) return; // Continuous/Charged behaviors fire through the hold-based path instead.
 
-            if (direction.sqrMagnitude < 0.0001f) return;
+            if (direction.sqrMagnitude < 0.0001f)
+            {
+                LogFireRejected("zero-length direction");
+                return;
+            }
             direction.Normalize();
 
             InstantShotBehavior behavior = data.ShotBehavior as InstantShotBehavior ?? DefaultHitscanBehavior;
             ShotContext ctx = new ShotContext(origin, direction, data, base.NetworkObject, transform.root, this);
             behavior.Fire(ctx);
+        }
+
+        /// <summary>
+        /// Temporary diagnostic for the "shot silently dropped" bug - CmdFire
+        /// returns early on every rejection with no client-visible feedback,
+        /// so there was previously no way to tell after the fact which gate
+        /// fired. Tagged with the owning connection's ClientId and the
+        /// equipped gun so a log captured during a repro pins down the exact
+        /// cause instead of guessing. Safe to remove once the root cause behind
+        /// the "totally can't fire" reports is confirmed and fixed.
+        /// </summary>
+        private void LogFireRejected(string reason)
+        {
+            int clientId = base.Owner != null ? base.Owner.ClientId : -1;
+            string gunName = _gun != null ? _gun.name : "<none>";
+            Debug.Log($"[{nameof(PlayerWeaponController)}] CmdFire rejected for client {clientId} ({gunName}): {reason}");
         }
 
         [ServerRpc]

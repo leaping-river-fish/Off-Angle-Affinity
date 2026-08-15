@@ -56,6 +56,7 @@
 //      defaults baked into the prefab.
 // =============================================================================
 
+using System;
 using FishNet.Object;
 using UnityEngine;
 using OffAngle.Core;
@@ -111,7 +112,19 @@ namespace OffAngle.Networking
             if (!base.IsOwner)
                 return;
 
-            CleanupOwnerComponents();
+            // Every peer's copy of this player's teardown runs synchronously
+            // as part of FishNet's despawn broadcast - an uncaught exception
+            // here would propagate back into the network transport instead of
+            // just this component, so it's caught and logged rather than left
+            // to escape.
+            try
+            {
+                CleanupOwnerComponents();
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         private void OnDestroy()
@@ -119,7 +132,14 @@ namespace OffAngle.Networking
             // Additional cleanup during despawn to prevent null references
             if (base.IsOwner)
             {
-                CleanupOwnerComponents();
+                try
+                {
+                    CleanupOwnerComponents();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogException(e, this);
+                }
             }
         }
 

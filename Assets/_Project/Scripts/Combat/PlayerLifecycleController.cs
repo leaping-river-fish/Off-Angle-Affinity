@@ -119,15 +119,33 @@ namespace OffAngle.Combat
         public override void OnStopServer()
         {
             base.OnStopServer();
-            if (_health != null)
-                _health.OnServerDied -= HandleServerDied;
+
+            // Runs synchronously as part of FishNet's despawn broadcast - contain
+            // any exception here rather than letting it escape into the network
+            // transport.
+            try
+            {
+                if (_health != null)
+                    _health.OnServerDied -= HandleServerDied;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         private void OnDestroy()
         {
             // Additional cleanup for safety during despawn
-            if (_health != null)
-                _health.OnServerDied -= HandleServerDied;
+            try
+            {
+                if (_health != null)
+                    _health.OnServerDied -= HandleServerDied;
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
+            }
         }
 
         public override void OnStartClient()

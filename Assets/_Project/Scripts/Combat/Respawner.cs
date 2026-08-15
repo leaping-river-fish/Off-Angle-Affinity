@@ -12,6 +12,7 @@
 // during the wait are ignored.
 // =============================================================================
 
+using System;
 using System.Collections;
 using FishNet.Connection;
 using FishNet.Object;
@@ -70,12 +71,23 @@ namespace OffAngle.Combat
         public override void OnStopServer()
         {
             base.OnStopServer();
-            _health.OnServerDied -= HandleServerDied;
 
-            if (_respawnRoutine != null)
+            // Runs synchronously as part of FishNet's despawn broadcast - contain
+            // any exception here rather than letting it escape into the network
+            // transport.
+            try
             {
-                StopCoroutine(_respawnRoutine);
-                _respawnRoutine = null;
+                _health.OnServerDied -= HandleServerDied;
+
+                if (_respawnRoutine != null)
+                {
+                    StopCoroutine(_respawnRoutine);
+                    _respawnRoutine = null;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e, this);
             }
         }
 
