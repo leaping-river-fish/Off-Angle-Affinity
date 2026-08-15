@@ -158,13 +158,50 @@ namespace OffAngle.Networking
             if (args.ConnectionState == RemoteConnectionState.Started)
             {
                 if (_hasGameStarted)
-                    SpawnFor(conn, null);
+                    SpawnOnceSceneLoaded(conn);
                 else if (!_pendingConnections.Contains(conn))
                     _pendingConnections.Add(conn);
             }
             else if (args.ConnectionState == RemoteConnectionState.Stopped)
             {
                 _pendingConnections.Remove(conn);
+            }
+        }
+
+        /// <summary>
+        /// Join-in-progress spawn: waits for this connection's own Game scene
+        /// load to be confirmed before spawning a player for it.
+        /// RemoteConnectionState.Started fires the instant the raw transport
+        /// connection is accepted - well before authentication or scene load
+        /// - so spawning immediately here handed this brand-new connection
+        /// observer visibility of already-spawned scene objects (e.g. Dummy
+        /// targets in the Game scene) before its own client had registered
+        /// that scene's NetworkObjects locally, producing FishNet's "SceneId
+        /// not found in SceneObjects" error. SpawnAll() already has an
+        /// equivalent guard for match-start players via GameFlowController
+        /// waiting on the SERVER's own scene load; this mirrors that for a
+        /// single late-joining CLIENT's own scene load.
+        /// </summary>
+        private void SpawnOnceSceneLoaded(NetworkConnection conn)
+        {
+            if (conn.LoadedStartScenes(true))
+            {
+                SpawnFor(conn, null);
+                return;
+            }
+
+            conn.OnLoadedStartScenes += HandleConnectionLoadedStartScenes;
+
+            void HandleConnectionLoadedStartScenes(NetworkConnection loadedConn, bool asServer)
+            {
+                if (!asServer || loadedConn != conn) return;
+
+                conn.OnLoadedStartScenes -= HandleConnectionLoadedStartScenes;
+
+                // Connection may have disconnected while its scene load was
+                // still pending - do not spawn a player for a dead connection.
+                if (conn.IsActive)
+                    SpawnFor(conn, null);
             }
         }
 
