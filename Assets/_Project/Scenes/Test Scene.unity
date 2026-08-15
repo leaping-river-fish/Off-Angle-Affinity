@@ -700,7 +700,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8418083827593306379, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -0.0009584317
+      value: 0.00004811774
       objectReference: {fileID: 0}
     m_RemovedComponents:
     - {fileID: 7546314611396383766, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
@@ -5375,9 +5375,9 @@ MonoBehaviour:
   _stopSocketsOnThread: 0
   _dontRoute: 0
   _reuseAddress: 1
-  _ipv4BindAddress:
+  _ipv4BindAddress: 
   _enableIpv6: 0
-  _ipv6BindAddress:
+  _ipv6BindAddress: 
   _port: 7770
   _maximumClients: 4095
   _clientAddress: localhost
@@ -5440,6 +5440,7 @@ MonoBehaviour:
   _notReadyMessage: NetworkManager not ready
   _noAddressMessage: Enter a server address
   _joinCodeUnavailableMessage: Couldn't generate a join code - share your IP instead
+  _serverStartFailedMessage: Server failed to start - port may be in use
 --- !u!1 &1875273009
 GameObject:
   m_ObjectHideFlags: 0
