@@ -73,7 +73,7 @@ namespace OffAngle.Networking
         [Tooltip("Cycle order for SwitchWeaponEvent (mouse scroll). Index 0 is active by default at spawn. Add a category here when you add a new one to the game.")]
         [SerializeField] private WeaponCategory[] _categoryCycleOrder;
 
-        [Tooltip("Every WeaponDefinition that can ever be selected, across every category. Must be identical on every peer (server + every client) so a WeaponDefinition.Id received over the network resolves to the same asset everywhere - add a new entry here whenever a new WeaponDefinition asset is created. Only needed for third-person visuals; leave empty if _thirdPersonWeaponHolder is also left unset.")]
+        [Tooltip("Every WeaponDefinition that can ever be selected, across every category. Must be identical on every peer (server + every client) so a WeaponDefinition.Id received over the network resolves to the same asset everywhere - add a new entry here whenever a new WeaponDefinition asset is created. REQUIRED for every weapon regardless of third-person visuals: CmdSetCategorySelection resolves the id through this same array to authorize a non-host client's equip request, so a missing entry silently strands that client on the scene-default weapon for that category - it looks equipped locally but the server (and therefore every shot) uses the wrong GunData. Do not leave weapons out of this list.")]
         [SerializeField] private WeaponDefinition[] _allDefinitions;
 
         private readonly Dictionary<WeaponCategory, Gun> _equippedInstances = new();
