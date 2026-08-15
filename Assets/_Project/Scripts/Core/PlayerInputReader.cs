@@ -72,6 +72,7 @@ namespace OffAngle.Core
         // Category Id string matching WeaponCategory.Id (e.g. "Primary", "Sidearm").
         public event Action<string>  SelectWeaponCategoryEvent;
         public event Action          OpenLoadoutMenuStarted;
+        public event Action          PauseToggleStarted;
 
         // ------------------------------------------------------------------
         // Polled properties — cached for states that need current values
@@ -100,6 +101,7 @@ namespace OffAngle.Core
         private InputAction _primary;
         private InputAction _sidearm;
         private InputAction _openLoadoutMenu;
+        private InputAction _pause;
 
         // UI map actions
         private InputAction _uiCloseMenu;
@@ -134,6 +136,7 @@ namespace OffAngle.Core
             _primary      = map.FindAction("Primary",      throwIfNotFound: true);
             _sidearm      = map.FindAction("Sidearm",      throwIfNotFound: true);
             _openLoadoutMenu = map.FindAction("WeaponMenu", throwIfNotFound: true);
+            _pause           = map.FindAction("Pause",      throwIfNotFound: true);
 
             // UI map actions
             var uiMapActions = _uiMap;
@@ -174,6 +177,7 @@ namespace OffAngle.Core
             _primary.performed      += OnSelectWeaponCategory;
             _sidearm.performed      += OnSelectWeaponCategory;
             _openLoadoutMenu.performed += OnOpenLoadoutMenu;
+            _pause.performed        += OnPauseToggle;
 
             // UI map close menu (if it exists)
             if (_uiCloseMenu != null)
@@ -206,6 +210,7 @@ namespace OffAngle.Core
             _primary.performed      -= OnSelectWeaponCategory;
             _sidearm.performed      -= OnSelectWeaponCategory;
             _openLoadoutMenu.performed -= OnOpenLoadoutMenu;
+            _pause.performed        -= OnPauseToggle;
 
             // UI map close menu (if it exists)
             if (_uiCloseMenu != null)
@@ -296,6 +301,9 @@ namespace OffAngle.Core
         private void OnOpenLoadoutMenu(InputAction.CallbackContext ctx)
             => OpenLoadoutMenuStarted?.Invoke();
 
+        private void OnPauseToggle(InputAction.CallbackContext ctx)
+            => PauseToggleStarted?.Invoke();
+
         // ------------------------------------------------------------------
         // Action map control (called by PlayerInputStateController)
         // ------------------------------------------------------------------
@@ -330,12 +338,13 @@ namespace OffAngle.Core
 
             foreach (InputAction action in _playerMap.actions)
             {
-                if (action == _openLoadoutMenu)
+                if (action == _openLoadoutMenu || action == _pause)
                     continue;
                 action.Disable();
             }
 
             _openLoadoutMenu?.Enable();
+            _pause?.Enable();
         }
 
         /// <summary>Disable the UI action map (stops menu navigation input events).</summary>

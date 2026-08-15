@@ -19,8 +19,10 @@ namespace OffAngle.Core
         /// <summary>Player dead: all input disabled except respawn UI. Cursor unlocked.</summary>
         Dead,
 
+        /// <summary>Pause menu open: gameplay input disabled, UI input enabled, same as Menu but distinct so pause-menu code can tell whether it — specifically — is the one that opened.</summary>
+        Paused,
+
         // Future states can be added here without breaking existing code:
-        // Paused,
         // SettingsMenu,
         // LoadoutEditor,
         // Spectating,

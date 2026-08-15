@@ -77,6 +77,11 @@ namespace OffAngle.Core
             TransitionTo(PlayerInputState.Dead);
         }
 
+        public void EnterPausedState()
+        {
+            TransitionTo(PlayerInputState.Paused);
+        }
+
         private void TransitionTo(PlayerInputState newState, bool force = false)
         {
             if (_currentState == newState && !force)
@@ -95,6 +100,9 @@ namespace OffAngle.Core
                     break;
                 case PlayerInputState.Dead:
                     ApplyDeathState();
+                    break;
+                case PlayerInputState.Paused:
+                    ApplyPausedState();
                     break;
             }
 
@@ -135,6 +143,21 @@ namespace OffAngle.Core
         {
             if (_inputReader != null && _inputReader)
                 _inputReader.DisableAllMaps();
+
+            if (_cameraController != null && _cameraController && _cameraController.enabled)
+                _cameraController.enabled = false;
+
+            SetCursorLocked(false);
+            SetCombatHudVisible(false);
+        }
+
+        private void ApplyPausedState()
+        {
+            if (_inputReader != null && _inputReader)
+            {
+                _inputReader.DisablePlayerMap(); // keeps WeaponMenu (P) and Pause (Esc) alive
+                _inputReader.EnableUIMap();
+            }
 
             if (_cameraController != null && _cameraController && _cameraController.enabled)
                 _cameraController.enabled = false;
