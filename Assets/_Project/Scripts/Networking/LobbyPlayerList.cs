@@ -34,8 +34,14 @@ namespace OffAngle.Networking
         /// <summary>Scene singleton, set once the object initializes on every peer.</summary>
         public static LobbyPlayerList Instance { get; private set; }
 
-        /// <summary>Fires on every peer (host and clients alike) once the server calls AnnounceGameStarted.</summary>
-        public event Action GameStarted;
+        /// <summary>
+        /// Fires right after Instance is set. FishNet activates scene
+        /// NetworkObjects a beat later than plain scene MonoBehaviours, so a
+        /// UI object that awakens/enables in the same scene load can't just
+        /// check Instance once -- it needs to hear about it if it's still
+        /// null at that point.
+        /// </summary>
+        public static event Action InstanceReady;
 
         /// <summary>Placeholder label until the project has real player display names.</summary>
         public static string LabelFor(int connectionId) => $"Player {connectionId}";
@@ -43,6 +49,7 @@ namespace OffAngle.Networking
         private void Awake()
         {
             Instance = this;
+            InstanceReady?.Invoke();
         }
 
         private void OnDestroy()
@@ -85,27 +92,6 @@ namespace OffAngle.Networking
                     ConnectionIds.Remove(conn.ClientId);
                     break;
             }
-        }
-
-        // ------------------------------------------------------------------
-        // Game start broadcast — every lobby UI (host's and every joiner's)
-        // needs this, not just the host who clicked Start Game, since only
-        // the host's button click ever happens locally.
-        // ------------------------------------------------------------------
-
-        /// <summary>Server-only. Tells every connected peer's lobby UI the match has started.</summary>
-        public void AnnounceGameStarted()
-        {
-            if (!IsServerInitialized)
-                return;
-
-            RpcGameStarted();
-        }
-
-        [ObserversRpc]
-        private void RpcGameStarted()
-        {
-            GameStarted?.Invoke();
         }
     }
 }

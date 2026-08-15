@@ -1,6 +1,6 @@
 // =============================================================================
 // LobbyMenuUI — shows the current session's join code and the live list of
-// connected players once NetworkMenuController reports a connection.
+// connected players.
 //
 // ARCHITECTURE:
 //   Framework-agnostic like NetworkMenuUI: no FishNet import here. Player
@@ -9,11 +9,11 @@
 //   NetworkMenuController.IsHost.
 //
 // PLACEMENT:
-//   Root of the "Lobby Menu" prefab, inactive by default -- it only shows
-//   itself once NetworkMenuController.Connected fires.
+//   Root of the "Lobby Menu" prefab, in the Lobby scene. Since Lobby only
+//   ever loads for an already-connected peer (see OnEnable), this shows
+//   itself immediately rather than waiting on a Connected event.
 // =============================================================================
 
-using System;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -25,7 +25,7 @@ namespace OffAngle.UI
     public class LobbyMenuUI : MonoBehaviour
     {
         [Header("Controller")]
-        [Tooltip("Same NetworkMenuController the Network Menu uses. Usually lives on the NetworkManager GameObject.")]
+        [Tooltip("Leave null to auto-resolve via FindFirstObjectByType. Same NetworkMenuController the Network Menu uses, on the persistent NetworkManager GameObject (a different scene than this one, so it can't be Inspector-dragged).")]
         [SerializeField] private NetworkMenuController _controller;
 
         [Header("Panel Root")]
@@ -38,9 +38,6 @@ namespace OffAngle.UI
         [SerializeField] private PlayerRowUI _playerRowPrefab;
         [SerializeField] private Button _startGameButton;
 
-        /// <summary>Fires when the host clicks Start Game. Nothing implemented downstream yet -- hook up map loading here later.</summary>
-        public event Action StartGameRequested;
-
         private readonly List<PlayerRowUI> _rows = new List<PlayerRowUI>();
 
         // Code and address arrive as two separate events, so both are kept and
@@ -50,8 +47,8 @@ namespace OffAngle.UI
 
         private void Awake()
         {
-            if (_panelRoot != null)
-                _panelRoot.SetActive(false);
+            if (_controller == null)
+                _controller = FindFirstObjectByType<NetworkMenuController>();
 
             if (_startGameButton != null)
                 _startGameButton.onClick.AddListener(OnStartGameClicked);
@@ -62,10 +59,20 @@ namespace OffAngle.UI
             if (_controller == null)
                 return;
 
-            _controller.Connected += HandleConnected;
             _controller.Disconnected += HandleDisconnected;
             _controller.SessionCodeReady += HandleSessionCodeReady;
             _controller.HostAddressReady += HandleHostAddressReady;
+            LobbyPlayerList.InstanceReady += SubscribeToPlayerList;
+
+            // Lobby is its own FishNet scene now: it only ever loads for a peer
+            // that's already connected (the host right after the server starts,
+            // or a joining client via FishNet's automatic global-scene sync on
+            // connect). Waiting for NetworkMenuController.Connected here is racy
+            // -- the host's own loopback client can reach Started before this
+            // scene has even finished loading, so the event fires before
+            // anything exists to catch it, and this panel would stay hidden
+            // forever. Treat "this object exists" as "connected" instead.
+            InitializeConnectedView();
         }
 
         private void OnDisable()
@@ -73,10 +80,10 @@ namespace OffAngle.UI
             if (_controller == null)
                 return;
 
-            _controller.Connected -= HandleConnected;
             _controller.Disconnected -= HandleDisconnected;
             _controller.SessionCodeReady -= HandleSessionCodeReady;
             _controller.HostAddressReady -= HandleHostAddressReady;
+            LobbyPlayerList.InstanceReady -= SubscribeToPlayerList;
 
             UnsubscribeFromPlayerList();
         }
@@ -91,13 +98,21 @@ namespace OffAngle.UI
         // Controller callbacks
         // ------------------------------------------------------------------
 
-        private void HandleConnected()
+        private void InitializeConnectedView()
         {
             if (_panelRoot != null)
                 _panelRoot.SetActive(true);
 
             if (_startGameButton != null)
                 _startGameButton.interactable = _controller.IsHost;
+
+            // The code/address are announced right when the server starts,
+            // which is what triggers the Lobby scene to load in the first
+            // place -- so this object never exists in time to catch those
+            // events firing. Pull whatever NetworkMenuController already has.
+            _sessionCode = _controller.CurrentSessionCode;
+            _hostAddress = _controller.CurrentHostAddress;
+            RefreshCodeText();
 
             SubscribeToPlayerList();
         }
@@ -148,17 +163,19 @@ namespace OffAngle.UI
         }
 
         // ------------------------------------------------------------------
-        // Player list (LobbyPlayerList.Instance is a scene object, present
-        // before Connected can ever fire, so it's safe to grab here)
+        // Player list
         // ------------------------------------------------------------------
 
+        // FishNet activates scene NetworkObjects like LobbyPlayerList a beat
+        // later than plain scene MonoBehaviours, so Instance can still be null
+        // the first time this runs from OnEnable. LobbyPlayerList.InstanceReady
+        // calls this again once it's actually set.
         private void SubscribeToPlayerList()
         {
             if (LobbyPlayerList.Instance == null)
                 return;
 
             LobbyPlayerList.Instance.ConnectionIds.OnChange += HandlePlayerListChanged;
-            LobbyPlayerList.Instance.GameStarted += HandleGameStarted;
             RebuildRows();
         }
 
@@ -168,20 +185,10 @@ namespace OffAngle.UI
                 return;
 
             LobbyPlayerList.Instance.ConnectionIds.OnChange -= HandlePlayerListChanged;
-            LobbyPlayerList.Instance.GameStarted -= HandleGameStarted;
         }
 
         private void HandlePlayerListChanged(FishNet.Object.Synchronizing.SyncListOperation op, int index, int oldItem, int newItem, bool asServer) =>
             RebuildRows();
-
-        // Fires on every peer once PlayerSpawner.SpawnAll() has run -- this is
-        // what actually closes the lobby, for the host AND every joiner, not
-        // just whoever clicked Start Game.
-        private void HandleGameStarted()
-        {
-            if (_panelRoot != null)
-                _panelRoot.SetActive(false);
-        }
 
         private void RebuildRows()
         {
@@ -212,6 +219,6 @@ namespace OffAngle.UI
         // Button handlers
         // ------------------------------------------------------------------
 
-        private void OnStartGameClicked() => StartGameRequested?.Invoke();
+        private void OnStartGameClicked() => GameFlowController.Instance?.RequestStartGame();
     }
 }

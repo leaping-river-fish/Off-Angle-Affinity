@@ -89,6 +89,9 @@ namespace OffAngle.Networking
         /// <summary>Fires when the local client transitions into the Started state.</summary>
         public event Action Connected;
 
+        /// <summary>Fires on the server the moment it reaches the Started state. GameFlowController listens here to load the Lobby scene.</summary>
+        public event Action ServerStarted;
+
         /// <summary>Fires when the local client stops, with a short reason string.</summary>
         public event Action<string> Disconnected;
 
@@ -107,6 +110,16 @@ namespace OffAngle.Networking
         /// blocked port both look identical from the joining side otherwise.
         /// </summary>
         public event Action<string> HostAddressReady;
+
+        /// <summary>
+        /// Last values raised via SessionCodeReady/HostAddressReady, empty if
+        /// none yet. Lobby's UI only exists once the Lobby scene loads --
+        /// which happens after ServerStarted (see HandleServerConnectionState)
+        /// -- so it always subscribes too late to catch the original events.
+        /// It reads these on enable instead.
+        /// </summary>
+        public string CurrentSessionCode { get; private set; } = "";
+        public string CurrentHostAddress { get; private set; } = "";
 
         // ------------------------------------------------------------------
         // Join code provider
@@ -234,6 +247,7 @@ namespace OffAngle.Networking
                 case LocalConnectionState.Started:
                     _awaitingHostServerStart = false;
                     AnnounceHostCode();
+                    ServerStarted?.Invoke();
                     InstanceFinder.ClientManager.StartConnection("127.0.0.1");
                     break;
 
@@ -255,11 +269,15 @@ namespace OffAngle.Networking
 
             if (result.Success)
             {
-                SessionCodeReady?.Invoke(result.Code);
-                HostAddressReady?.Invoke($"{result.HostAddress}:{port}");
+                CurrentSessionCode = result.Code;
+                CurrentHostAddress = $"{result.HostAddress}:{port}";
+                SessionCodeReady?.Invoke(CurrentSessionCode);
+                HostAddressReady?.Invoke(CurrentHostAddress);
             }
             else
             {
+                CurrentSessionCode = "";
+                CurrentHostAddress = "";
                 SessionCodeReady?.Invoke(string.Empty);
                 HostAddressReady?.Invoke(string.Empty);
                 RaiseStatus($"{_joinCodeUnavailableMessage} ({result.ErrorReason})");
@@ -335,11 +353,15 @@ namespace OffAngle.Networking
         {
             if (IPAddress.TryParse(address, out IPAddress ip) && LanJoinCodec.TryEncode(ip, port, out string code))
             {
-                SessionCodeReady?.Invoke(code);
-                HostAddressReady?.Invoke($"{address}:{port}");
+                CurrentSessionCode = code;
+                CurrentHostAddress = $"{address}:{port}";
+                SessionCodeReady?.Invoke(CurrentSessionCode);
+                HostAddressReady?.Invoke(CurrentHostAddress);
             }
             else
             {
+                CurrentSessionCode = "";
+                CurrentHostAddress = "";
                 SessionCodeReady?.Invoke(string.Empty);
                 HostAddressReady?.Invoke(string.Empty);
             }
@@ -377,6 +399,8 @@ namespace OffAngle.Networking
                     string reason = _hasReachedStarted ? _disconnectedMessage : _connectionFailedMessage;
 
                     _hasReachedStarted = false;
+                    CurrentSessionCode = "";
+                    CurrentHostAddress = "";
                     RaiseStatus(reason);
                     Disconnected?.Invoke(reason);
                     break;

@@ -5,7 +5,7 @@
 //   Subscribes to ServerManager.OnRemoteConnectionState. Before the match
 //   starts, a connection reaching Started (including the host's own loopback
 //   client) is only queued -- nothing spawns yet, so players stay lobby-
-//   locked. When the host's Lobby Menu raises StartGameRequested, SpawnAll()
+//   locked. When GameFlowController's Game scene load completes, SpawnAll()
 //   fires once: every queued connection gets a shuffled, non-repeating spawn
 //   point (first-mode deathmatch wants guaranteed-unique starts). Connections
 //   that arrive after the match has started (join-in-progress) spawn
@@ -18,20 +18,21 @@
 //   dropped from the queue.
 //
 // WHY THIS LIVES ON A REGULAR MonoBehaviour:
-//   The spawner is server-side infrastructure tied to the scene, not a
-//   networked entity. Making it a NetworkBehaviour would require its own
-//   NetworkObject and spawn dance, which adds nothing.
+//   The spawner is server-side infrastructure, not a networked entity. Making
+//   it a NetworkBehaviour would require its own NetworkObject and spawn
+//   dance, which adds nothing. It lives on the persistent NetworkManager
+//   GameObject (created in MainMenu, survives every scene transition) rather
+//   than in the Game scene, since it must already be tracking connections
+//   throughout the Lobby phase before the Game scene ever loads.
 //
 // MANUAL SETUP:
-//   1. Empty GameObject named "PlayerSpawner" in the same scene as
-//      NetworkManager.
-//   2. Attach this component.
-//   3. Drag the player prefab's root NetworkObject into _playerPrefab.
-//   4. Create 2-4 empty GameObjects positioned where you want spawns, drag
-//      them into _spawnPoints. (Leaving the array empty falls back to the
-//      world origin — fine for first-light testing.)
-//   5. Drag the scene's Lobby Menu instance into _lobbyMenu so its Start Game
-//      button can trigger SpawnAll().
+//   1. Attach this component to the persistent NetworkManager GameObject.
+//   2. Drag the player prefab's root NetworkObject into _playerPrefab.
+//   3. Spawn points are resolved at runtime via ResolveSpawnPoints() (called
+//      by GameFlowController once the Game scene loads) by finding every
+//      SpawnPoint component in the scene -- no Inspector wiring needed here,
+//      since those Transforms don't exist at edit time in this GameObject's
+//      own scene (MainMenu).
 // =============================================================================
 
 using System.Collections.Generic;
@@ -39,7 +40,6 @@ using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Transporting;
-using OffAngle.UI;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -50,22 +50,21 @@ namespace OffAngle.Networking
         [Tooltip("Root NetworkObject of the player prefab. Must be registered in DefaultPrefabObjects (FishNet auto-detects new prefabs containing a NetworkObject).")]
         [SerializeField] private NetworkObject _playerPrefab;
 
-        [Header("Spawn Points")]
-        [Tooltip("Empty Transforms placed in the scene. Leave empty to spawn everyone at world origin (useful for first smoke test).")]
-        [SerializeField] private Transform[] _spawnPoints;
-
-        [Header("Match Start")]
-        [Tooltip("The scene's Lobby Menu. Its Start Game button (host-only) triggers SpawnAll().")]
-        [SerializeField] private LobbyMenuUI _lobbyMenu;
+        // Resolved at runtime via ResolveSpawnPoints() once the Game scene loads
+        // (see GameFlowController.HandleGameSceneLoaded). Must be a field, not a
+        // local variable, because Respawner calls GetSpawnPoint() on every
+        // mid-match respawn, not just the initial spawn.
+        private SpawnPoint[] _spawnPoints;
 
         // ------------------------------------------------------------------
-        // Scene singleton — Respawner queries GetSpawnPoint() here.
+        // Persistent singleton — Respawner queries GetSpawnPoint() here.
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Scene singleton reference. Set in Awake on every peer (scene object),
-        /// cleared in OnDestroy. Consumers should null-check because the spawner
-        /// only exists once the gameplay scene is loaded.
+        /// Singleton reference, set in Awake, cleared in OnDestroy. Lives on the
+        /// persistent NetworkManager GameObject from MainMenu onward. Consumers
+        /// should still null-check, since it only exists once the host/server
+        /// has actually started.
         /// </summary>
         public static PlayerSpawner Instance { get; private set; }
 
@@ -108,15 +107,7 @@ namespace OffAngle.Networking
                 return;
             }
 
-            if (_lobbyMenu == null)
-            {
-                Debug.LogError($"[{nameof(PlayerSpawner)}] _lobbyMenu is not assigned.", this);
-                enabled = false;
-                return;
-            }
-
             InstanceFinder.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
-            _lobbyMenu.StartGameRequested += HandleStartGameRequested;
         }
 
         private void OnDestroy()
@@ -124,12 +115,17 @@ namespace OffAngle.Networking
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
 
-            if (_lobbyMenu != null)
-                _lobbyMenu.StartGameRequested -= HandleStartGameRequested;
-
             if (Instance == this)
                 Instance = null;
         }
+
+        // ------------------------------------------------------------------
+        // Spawn point resolution (called by GameFlowController once the Game
+        // scene finishes loading)
+        // ------------------------------------------------------------------
+
+        public void ResolveSpawnPoints()
+            => _spawnPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
 
         // ------------------------------------------------------------------
         // Public spawn point query (used by Respawner)
@@ -145,7 +141,7 @@ namespace OffAngle.Networking
                 return null;
 
             int idx = Random.Range(0, _spawnPoints.Length);
-            return _spawnPoints[idx];
+            return _spawnPoints[idx].transform;
         }
 
         // ------------------------------------------------------------------
@@ -172,22 +168,11 @@ namespace OffAngle.Networking
             }
         }
 
-        // Defensive — same reasoning as OnRemoteConnectionState above: the
-        // Start Game button is only interactable for the host, so this should
-        // never fire on a client, but a future refactor could change that.
-        private void HandleStartGameRequested()
-        {
-            if (!InstanceFinder.IsServerStarted || _hasGameStarted)
-                return;
-
-            SpawnAll();
-        }
-
         // ------------------------------------------------------------------
-        // Spawn logic
+        // Spawn logic (called by GameFlowController once the Game scene loads)
         // ------------------------------------------------------------------
 
-        private void SpawnAll()
+        public void SpawnAll()
         {
             _hasGameStarted = true;
 
@@ -197,7 +182,9 @@ namespace OffAngle.Networking
             List<Transform> shuffledPoints = null;
             if (_spawnPoints != null && _spawnPoints.Length > 0)
             {
-                shuffledPoints = new List<Transform>(_spawnPoints);
+                shuffledPoints = new List<Transform>();
+                foreach (SpawnPoint sp in _spawnPoints)
+                    shuffledPoints.Add(sp.transform);
                 Shuffle(shuffledPoints);
             }
 
@@ -214,10 +201,6 @@ namespace OffAngle.Networking
 
                 SpawnFor(connections[i], point);
             }
-
-            // Every peer's lobby UI needs this, not just the host who
-            // clicked Start Game -- their own click never reaches anyone else.
-            LobbyPlayerList.Instance?.AnnounceGameStarted();
         }
 
         private void SpawnFor(NetworkConnection conn, Transform explicitPoint)
