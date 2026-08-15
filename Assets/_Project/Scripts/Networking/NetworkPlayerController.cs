@@ -57,6 +57,7 @@
 // =============================================================================
 
 using System;
+using System.Collections;
 using FishNet.Object;
 using UnityEngine;
 using OffAngle.Core;
@@ -71,6 +72,9 @@ namespace OffAngle.Networking
         [SerializeField] private PlayerInputReader      _inputReader;
         [SerializeField] private MovementStateMachine   _stateMachine;
 
+        [Tooltip("Leave null to auto-resolve via GetComponent. See OnStartClient's owner branch for why this needs an explicit re-enable.")]
+        [SerializeField] private CharacterController    _characterController;
+
         [Header("Camera subtree (must be SetActive(false) in the prefab)")]
         [Tooltip("The root GameObject of the player's camera. Activated for the local owner; left inactive for remote players to avoid extra cameras / audio listeners.")]
         [SerializeField] private GameObject             _cameraRoot;
@@ -78,6 +82,12 @@ namespace OffAngle.Networking
         [Header("HUD subtree (must be SetActive(false) in the prefab)")]
         [Tooltip("The root GameObject of the player's HUD (health, ammo, crosshair, menus). Activated for the local owner; left inactive for remote players.")]
         [SerializeField] private GameObject             _hudRoot;
+
+        private void Awake()
+        {
+            if (_characterController == null)
+                _characterController = GetComponent<CharacterController>();
+        }
 
         // ------------------------------------------------------------------
         // FishNet lifecycle
@@ -100,6 +110,31 @@ namespace OffAngle.Networking
             if (_stateMachine != null) _stateMachine.enabled = true;
             if (_cameraRoot != null)   _cameraRoot.SetActive(true);
             if (_hudRoot != null)      _hudRoot.SetActive(true);
+
+            // NetworkTransform's own CharacterController-mode setup (see the
+            // player prefab's NetworkTransform, _componentConfiguration) is
+            // supposed to enable this controller for whichever peer IsOwner
+            // for it, but for a genuinely remote connection (anyone but the
+            // host) that check runs once, in OnStartClient, before ownership
+            // has definitely finished settling for this exact connection -
+            // for the host it's instant (server and client are the same
+            // process) so the race never shows up there. When it loses that
+            // race the controller is left permanently disabled, since nothing
+            // re-runs that check afterward - MovementStateMachine then spams
+            // "CharacterController.Move called on inactive controller" every
+            // frame forever. Deferring one frame guarantees this runs after
+            // every other component's OnStartClient this spawn, so whatever
+            // NetworkTransform decided gets overridden with the answer we
+            // already know is correct: this IS the owner, so the controller
+            // must be enabled.
+            StartCoroutine(EnableControllerNextFrame());
+        }
+
+        private IEnumerator EnableControllerNextFrame()
+        {
+            yield return null;
+            if (_characterController != null)
+                _characterController.enabled = true;
         }
 
         public override void OnStopClient()
