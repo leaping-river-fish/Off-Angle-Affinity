@@ -58,6 +58,7 @@
 
 using System;
 using System.Collections;
+using FishNet.Connection;
 using FishNet.Object;
 using UnityEngine;
 using OffAngle.Core;
@@ -93,6 +94,14 @@ namespace OffAngle.Networking
         // FishNet lifecycle
         // ------------------------------------------------------------------
 
+        // Guards ActivateOwnerComponents() against running twice - once from
+        // OnStartClient, and again from OnOwnershipClient if ownership
+        // resolves to this connection only after OnStartClient already ran
+        // (see OnOwnershipClient below).
+        private bool _ownerComponentsActivated;
+
+        private Coroutine _ensureControllerEnabledCoroutine;
+
         public override void OnStartClient()
         {
             base.OnStartClient();
@@ -101,6 +110,31 @@ namespace OffAngle.Networking
             // disabled defaults, so OnEnable/OnDisable never fires for them.
             if (!base.IsOwner)
                 return;
+
+            ActivateOwnerComponents();
+        }
+
+        // NetworkTransform's own CharacterController-mode setup (see the
+        // player prefab's NetworkTransform, _componentConfiguration) re-runs
+        // ConfigureComponents() on its own OnOwnershipClient, not just
+        // OnStartClient - a signal that FishNet does not guarantee ownership
+        // is fully settled for this connection by the time OnStartClient
+        // runs. Mirror that here: if IsOwner only becomes true once this
+        // fires (rather than already being true during OnStartClient above),
+        // this is the first and only other chance to light up the owner
+        // stack - there is no other hook that would ever revisit it.
+        public override void OnOwnershipClient(NetworkConnection prevOwner)
+        {
+            base.OnOwnershipClient(prevOwner);
+
+            if (base.IsOwner)
+                ActivateOwnerComponents();
+        }
+
+        private void ActivateOwnerComponents()
+        {
+            if (_ownerComponentsActivated) return;
+            _ownerComponentsActivated = true;
 
             // Local owner: light up the gameplay stack in a deterministic order.
             // PlayerInputReader.OnEnable must run BEFORE PlayerCameraController.OnEnable
@@ -111,30 +145,36 @@ namespace OffAngle.Networking
             if (_cameraRoot != null)   _cameraRoot.SetActive(true);
             if (_hudRoot != null)      _hudRoot.SetActive(true);
 
-            // NetworkTransform's own CharacterController-mode setup (see the
-            // player prefab's NetworkTransform, _componentConfiguration) is
-            // supposed to enable this controller for whichever peer IsOwner
-            // for it, but for a genuinely remote connection (anyone but the
-            // host) that check runs once, in OnStartClient, before ownership
-            // has definitely finished settling for this exact connection -
-            // for the host it's instant (server and client are the same
-            // process) so the race never shows up there. When it loses that
-            // race the controller is left permanently disabled, since nothing
-            // re-runs that check afterward - MovementStateMachine then spams
-            // "CharacterController.Move called on inactive controller" every
-            // frame forever. Deferring one frame guarantees this runs after
-            // every other component's OnStartClient this spawn, so whatever
-            // NetworkTransform decided gets overridden with the answer we
-            // already know is correct: this IS the owner, so the controller
-            // must be enabled.
-            StartCoroutine(EnableControllerNextFrame());
+            if (_ensureControllerEnabledCoroutine == null)
+                _ensureControllerEnabledCoroutine = StartCoroutine(EnsureControllerEnabled());
         }
 
-        private IEnumerator EnableControllerNextFrame()
+        // Repeatedly (not just once, one frame later) forces the controller
+        // back on for a short settling window after spawn. A single deferred
+        // frame assumed the ownership race above resolves within exactly one
+        // frame, which does not hold for a genuine network connection with
+        // real latency - NetworkTransform can call ConfigureComponents() again
+        // after our one-shot fix already ran (e.g. its own OnOwnershipClient
+        // firing later) and re-disable the controller with nothing left to
+        // recover it. Bailing out once _stateMachine.enabled is false stops
+        // this from fighting PlayerLifecycleController.SetOwnerGameplayLocked
+        // if the player dies while still inside this settling window.
+        private IEnumerator EnsureControllerEnabled()
         {
-            yield return null;
-            if (_characterController != null)
-                _characterController.enabled = true;
+            float deadline = Time.time + 3f;
+
+            while (Time.time < deadline)
+            {
+                if (_stateMachine != null && !_stateMachine.enabled)
+                    break;
+
+                if (_characterController != null)
+                    _characterController.enabled = true;
+
+                yield return null;
+            }
+
+            _ensureControllerEnabledCoroutine = null;
         }
 
         public override void OnStopClient()

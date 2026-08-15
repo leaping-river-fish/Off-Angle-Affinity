@@ -129,11 +129,31 @@ namespace OffAngle.Movement
 
         private void Update()
         {
+            // Guards against a window where this component is enabled but
+            // Controller is not (e.g. NetworkPlayerController's owner-enable
+            // racing FishNet's own CharacterController-mode NetworkTransform
+            // just after spawn - see NetworkPlayerController.OnStartClient).
+            // Without this, Tick() keeps calling Controller.Move() on a
+            // disabled controller (silently ignored by Unity, but spams
+            // "CharacterController.Move called on inactive controller") AND
+            // AirborneState keeps accumulating gravity into Velocity every
+            // frame the Move() never actually lands - so the instant the
+            // controller re-enables, the next Move() applies one huge
+            // pent-up displacement that can tunnel the capsule through/under
+            // thin ground geometry. Skipping Tick() entirely here freezes
+            // Velocity at whatever it was, so nothing is lost or corrupted -
+            // ticking simply resumes normally once Controller.enabled is true.
+            if (_ctx?.Controller != null && !_ctx.Controller.enabled)
+                return;
+
             _current?.Tick(_ctx, Time.deltaTime);
         }
 
         private void FixedUpdate()
         {
+            if (_ctx?.Controller != null && !_ctx.Controller.enabled)
+                return;
+
             _current?.FixedTick(_ctx, Time.fixedDeltaTime);
         }
 

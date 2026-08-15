@@ -48,6 +48,7 @@
 // =============================================================================
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -156,7 +157,7 @@ namespace OffAngle.Networking
         public override void OnStartServer()
         {
             base.OnStartServer();
-            EquipAllFromLoadout();
+            TryEquipFromLoadout();
         }
 
         public override void OnStartClient()
@@ -172,15 +173,13 @@ namespace OffAngle.Networking
 
             if (!base.IsOwner) return;
 
-            if (LoadoutManager.Instance != null)
-                LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
             if (_inputReader != null)
             {
                 _inputReader.SwitchWeaponEvent += HandleSwitchWeapon;
                 _inputReader.SelectWeaponCategoryEvent += HandleSelectWeaponCategory;
             }
 
-            EquipAllFromLoadout();
+            TryEquipFromLoadout();
         }
 
         public override void OnStopClient()
@@ -211,6 +210,45 @@ namespace OffAngle.Networking
         // Loadout reactions
         // ------------------------------------------------------------------
 
+        // Guards WaitForLoadoutManagerThenEquip against being started twice
+        // (once from OnStartServer, once from OnStartClient's owner branch,
+        // on the same host instance).
+        private Coroutine _pendingLoadoutEquip;
+
+        /// <summary>
+        /// Equips from LoadoutManager.Instance if it's already available,
+        /// otherwise waits for it. LoadoutManager is a scene singleton seeded
+        /// in its own Awake() - normally already alive by the time a player
+        /// spawns, but nothing actually guarantees that ordering is safe for
+        /// every peer/timing combination. The previous single best-effort
+        /// call (EquipAllFromLoadout() with no retry) silently gave up
+        /// forever whenever LoadoutManager.Instance happened to be null at
+        /// that exact moment, stranding that peer with no weapon equipped
+        /// and no way to recover this session.
+        /// </summary>
+        private void TryEquipFromLoadout()
+        {
+            if (_hasEquippedFromLoadout) return;
+
+            if (LoadoutManager.Instance != null)
+            {
+                EquipAllFromLoadout();
+                return;
+            }
+
+            if (_pendingLoadoutEquip == null)
+                _pendingLoadoutEquip = StartCoroutine(WaitForLoadoutManagerThenEquip());
+        }
+
+        private IEnumerator WaitForLoadoutManagerThenEquip()
+        {
+            while (LoadoutManager.Instance == null)
+                yield return null;
+
+            _pendingLoadoutEquip = null;
+            EquipAllFromLoadout();
+        }
+
         private void EquipAllFromLoadout()
         {
             if (_hasEquippedFromLoadout) return;
@@ -220,6 +258,15 @@ namespace OffAngle.Networking
             // SetGun, and there is no reason for that round trip to re-enter
             // this method.
             _hasEquippedFromLoadout = true;
+
+            // Only the owner's local equip drives first-person input/UI, so
+            // only the owner needs to react to future selection changes -
+            // matches the OnStopClient teardown, which unsubscribes this same
+            // handler. Subscribing here (once Instance is confirmed non-null)
+            // rather than in OnStartClient means this can never be silently
+            // skipped by the same race TryEquipFromLoadout guards against.
+            if (base.IsOwner)
+                LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
 
             for (int i = 0; i < _categoryCycleOrder.Length; i++)
             {
