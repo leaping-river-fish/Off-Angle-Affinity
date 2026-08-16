@@ -208,6 +208,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1874922820}
   - component: {fileID: 1874922819}
+  - component: {fileID: 1874922824}
   - component: {fileID: 1874922818}
   - component: {fileID: 1874922821}
   - component: {fileID: 1874922823}
@@ -332,6 +333,26 @@ MonoBehaviour:
   _lobbySceneName: Lobby
   _gameSceneName: Game
   _networkMenuController: {fileID: 0}
+--- !u!114 &1874922824
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1874922816}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7d331f979d46e8e4a9fc90070c596d44, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Managing.Observing.ObserverManager
+  _useLevelOfDetail: 0
+  _maximumLevelOfDetailInterval: 2
+  _levelOfDetailUpdateDuration: 1
+  _levelOfDetailDistances: []
+  _updateHostVisibility: 1
+  _maximumTimedObserversDuration: 10
+  _defaultConditions:
+  - {fileID: 11400000, guid: 65cc8df63e774cf49acf3bc012dd6899, type: 2}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
