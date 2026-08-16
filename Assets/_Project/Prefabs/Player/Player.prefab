@@ -1840,7 +1840,7 @@ MonoBehaviour:
   _cameraTransform: {fileID: 3639447519269023098}
   _lifecycle: {fileID: 8432026098743611657}
   _stateController: {fileID: 4848753837396730076}
-  _serverFireRateGrace: 0.05
+  _serverFireRateBurstAllowance: 3
   _muzzleClearanceDistance: 0.6
   _tracerPrefab: {fileID: 2952079945757915, guid: c18e52cbe5e74825a3f5132645a2701e, type: 3}
 --- !u!114 &4848753837396730076

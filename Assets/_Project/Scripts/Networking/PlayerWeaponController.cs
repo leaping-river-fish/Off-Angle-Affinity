@@ -11,7 +11,8 @@
 //   1. Owner client sees PlayerInputReader.FireStarted.
 //   2. Local Gun.TryFire() gates the ServerRpc rate to avoid spam.
 //   3. CmdFire(origin, direction) is sent to the server.
-//   4. Server re-validates fire rate (with a small grace for network jitter),
+//   4. Server re-validates fire rate (as a leaky bucket, so tick quantization
+//      and network jitter cannot eat rounds out of a burst - see CmdFire),
 //      ammo, reload, and death, then dispatches to data.ShotBehavior.Fire()
 //      (or a shared default Hitscan instance if none is assigned).
 //   5. The behavior resolves damage via HitResolution (reusing the existing
@@ -62,8 +63,8 @@ namespace OffAngle.Networking
         [SerializeField] private PlayerInputStateController _stateController;
 
         [Header("Server validation")]
-        [Tooltip("Fraction of the fire interval the server allows as jitter grace. 0.05 = 5% early accepted.")]
-        [SerializeField, Range(0f, 0.5f)] private float _serverFireRateGrace = 0.05f;
+        [Tooltip("How many shots' worth of fire-rate credit a client may bank while not firing. This is the jitter tolerance for the server's rate check. FishNet flushes and reads RPCs on tick boundaries (33ms at the default 30 tick rate), so an honest client's shots routinely reach the server closer together than 1/FireRate - a burst weapon cannot land its full burst without this. 3 covers a standard 3-round burst. Sustained fire rate is capped at FireRate no matter what this is set to.")]
+        [SerializeField, Range(1f, 8f)] private float _serverFireRateBurstAllowance = 3f;
 
         [Tooltip("Distance the aim ray's origin is pushed forward along the camera's forward direction before being sent to the server. Must clear the player's own CharacterController/hitbox colliders (radius ~0.5) so shots can never self-block while moving. Applied on the trusted client side, same as origin/direction themselves.")]
         [SerializeField, Min(0f)] private float _muzzleClearanceDistance = 0.6f;
@@ -80,6 +81,16 @@ namespace OffAngle.Networking
         private static HitscanShotBehavior DefaultHitscanBehavior =>
             _defaultHitscanBehavior ??= ScriptableObject.CreateInstance<HitscanShotBehavior>();
 
+        // Leaky-bucket accumulator behind the server-side fire-rate check. A
+        // single field shared across every equipped weapon, hence the reset in
+        // ServerSwapAmmo.
+        //
+        // Semantics: "the earliest Time.time at which the next shot may fire."
+        // Every shot that actually happens pushes it forward by exactly one
+        // fire interval, so sustained rate is still hard-capped at
+        // GunData.FireRate. While not firing it is pulled back toward `now` by
+        // up to _serverFireRateBurstAllowance intervals - that banked credit is
+        // what absorbs tick quantization and network jitter.
         private float _serverNextAllowedFireTime;
 
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
@@ -490,15 +501,27 @@ namespace OffAngle.Networking
 
             GunData data = _gun.Data;
 
-            // Rate validation. Grace is small enough that the client can't reliably beat it.
+            // Rate validation, as a leaky bucket rather than a hard "no shot
+            // before time T". A flat cutoff cannot work here: FishNet flushes
+            // and reads RPCs on tick boundaries (33ms at the default 30 tick
+            // rate), so an honest client firing at 12/s - shots 83ms apart -
+            // has them land at the server either 67ms or 100ms apart depending
+            // on tick phase. The old 5% grace only tolerated 4ms of that, so
+            // the 67ms case was rejected and a 3-round burst reliably lost a
+            // round. Banking credit while not firing absorbs the jitter while
+            // still capping sustained rate at exactly FireRate.
             float now = Time.time;
-            if (now < _serverNextAllowedFireTime)
+            float interval = 1f / Mathf.Max(0.01f, data.FireRate);
+
+            _serverNextAllowedFireTime = Mathf.Max(
+                _serverNextAllowedFireTime,
+                now - interval * _serverFireRateBurstAllowance);
+
+            if (_serverNextAllowedFireTime > now)
             {
                 LogFireRejected($"fire-rate cooldown ({_serverNextAllowedFireTime - now:F2}s remaining)");
                 return;
             }
-            float interval = (1f / Mathf.Max(0.01f, data.FireRate)) * (1f - _serverFireRateGrace);
-            _serverNextAllowedFireTime = now + interval;
 
             if (_isReloading.Value)
             {
@@ -510,6 +533,12 @@ namespace OffAngle.Networking
                 LogFireRejected("empty magazine");
                 return;
             }
+
+            // Only a shot that actually happens spends rate budget. Charging it
+            // above (as this used to) meant a request rejected for ammo or
+            // reload still pushed the window out, gating the first real shot
+            // after a reload.
+            _serverNextAllowedFireTime += interval;
 
             _magazineAmmo.Value--;
 
