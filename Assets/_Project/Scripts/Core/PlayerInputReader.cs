@@ -109,6 +109,11 @@ namespace OffAngle.Core
         private InputActionMap _playerMap;
         private InputActionMap _uiMap;
 
+        // True once Awake has swapped _actionAsset for a runtime clone, so
+        // OnDestroy knows it is safe to destroy it. Guards against ever
+        // destroying the shared project asset.
+        private bool _ownsActionAsset;
+
         // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------
@@ -116,6 +121,33 @@ namespace OffAngle.Core
         private void Awake()
         {
             ResolveActionAsset();
+
+            if (_actionAsset == null)
+            {
+                // ResolveActionAsset() is editor-only, so in a build this means
+                // the Player prefab's field was never assigned. Fail loudly here
+                // rather than as a bare NullReferenceException on the next line.
+                Debug.LogError(
+                    $"[{nameof(PlayerInputReader)}] No InputActionAsset assigned. " +
+                    "Assign PlayerInputActions on the Player prefab - the editor-only auto-resolve masks this until you build.",
+                    this);
+                enabled = false;
+                return;
+            }
+
+            // Per-instance clone. EVERY player object carries one of these -
+            // including remote players' avatars on every peer - and they all
+            // pointed at the same shared project asset. Any one of them
+            // disabling it disabled input for the local player too: on despawn
+            // via OnDestroy, and on spawn via NetworkPlayerController turning a
+            // non-owner's reader off (which runs OnDisable -> DisableAllMaps).
+            // That is what made every remaining peer lose movement, look, fire
+            // and pause the moment somebody else left the match.
+            //
+            // Cloning makes enable/disable purely local, which fixes the whole
+            // family of cases rather than the one call site that was noticed.
+            _actionAsset = Instantiate(_actionAsset);
+            _ownsActionAsset = true;
 
             _playerMap = _actionAsset.FindActionMap("Player", throwIfNotFound: true);
             _uiMap = _actionAsset.FindActionMap("UI", throwIfNotFound: true);
@@ -221,10 +253,18 @@ namespace OffAngle.Core
 
         private void OnDestroy()
         {
-            // Additional cleanup during despawn to prevent null references
+            // Safe only because Awake cloned the asset. This used to run against
+            // the SHARED project asset with no owner check - and OnDestroy runs
+            // even on a disabled component - so destroying any player's avatar
+            // killed input for whoever was watching it.
             if (_actionAsset != null && _actionAsset)
             {
                 _actionAsset.Disable();
+
+                // The clone is a runtime object; without this we leak one
+                // InputActionAsset per player spawned.
+                if (_ownsActionAsset)
+                    Destroy(_actionAsset);
             }
         }
 

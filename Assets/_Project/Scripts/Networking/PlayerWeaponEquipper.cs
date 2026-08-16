@@ -179,7 +179,45 @@ namespace OffAngle.Networking
                 _inputReader.SelectWeaponCategoryEvent += HandleSelectWeaponCategory;
             }
 
+            // Owned by this callback, NOT by EquipAllFromLoadout. On a host,
+            // OnStartServer runs first and calls TryEquipFromLoadout() while
+            // IsOwner is still false, which latched _hasEquippedFromLoadout and
+            // made EquipAllFromLoadout skip its owner-only subscribe. By the
+            // time this ran with IsOwner true, TryEquipFromLoadout() returned
+            // immediately on that flag - so the host never heard
+            // SelectionChanged and loadout picks silently did nothing.
+            // Clients were fine because they only ever run OnStartClient.
+            SubscribeToLoadoutSelection();
+
             TryEquipFromLoadout();
+        }
+
+        // Waits for LoadoutManager the same way TryEquipFromLoadout does: it is
+        // a scene singleton seeded in its own Awake, normally alive before any
+        // player spawns, but nothing guarantees that for every peer/timing.
+        private void SubscribeToLoadoutSelection()
+        {
+            if (_hasSubscribedToSelection) return;
+
+            if (LoadoutManager.Instance != null)
+            {
+                _hasSubscribedToSelection = true;
+                LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
+                return;
+            }
+
+            if (_pendingSelectionSubscribe == null)
+                _pendingSelectionSubscribe = StartCoroutine(WaitForLoadoutManagerThenSubscribe());
+        }
+
+        private IEnumerator WaitForLoadoutManagerThenSubscribe()
+        {
+            while (LoadoutManager.Instance == null)
+                yield return null;
+
+            _pendingSelectionSubscribe = null;
+            _hasSubscribedToSelection = true;
+            LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
         }
 
         public override void OnStopClient()
@@ -192,6 +230,15 @@ namespace OffAngle.Networking
             // transport.
             try
             {
+                // The subscribe may still be pending if LoadoutManager never
+                // appeared (e.g. despawned during the scene load that creates it).
+                if (_pendingSelectionSubscribe != null)
+                {
+                    StopCoroutine(_pendingSelectionSubscribe);
+                    _pendingSelectionSubscribe = null;
+                }
+                _hasSubscribedToSelection = false;
+
                 if (LoadoutManager.Instance != null)
                     LoadoutManager.Instance.SelectionChanged -= HandleSelectionChanged;
                 if (_inputReader != null)
@@ -214,6 +261,12 @@ namespace OffAngle.Networking
         // (once from OnStartServer, once from OnStartClient's owner branch,
         // on the same host instance).
         private Coroutine _pendingLoadoutEquip;
+
+        // Separate from _hasEquippedFromLoadout on purpose: the equip is a
+        // once-per-object action that either peer role may perform, while this
+        // subscription is owner-only. Sharing one flag is what broke the host.
+        private bool _hasSubscribedToSelection;
+        private Coroutine _pendingSelectionSubscribe;
 
         /// <summary>
         /// Equips from LoadoutManager.Instance if it's already available,
@@ -259,14 +312,10 @@ namespace OffAngle.Networking
             // this method.
             _hasEquippedFromLoadout = true;
 
-            // Only the owner's local equip drives first-person input/UI, so
-            // only the owner needs to react to future selection changes -
-            // matches the OnStopClient teardown, which unsubscribes this same
-            // handler. Subscribing here (once Instance is confirmed non-null)
-            // rather than in OnStartClient means this can never be silently
-            // skipped by the same race TryEquipFromLoadout guards against.
-            if (base.IsOwner)
-                LoadoutManager.Instance.SelectionChanged += HandleSelectionChanged;
+            // The SelectionChanged subscription deliberately does NOT live here
+            // any more. This method also runs from OnStartServer, where IsOwner
+            // is still false on a host, so the owner-only subscribe was skipped
+            // and then never retried - see SubscribeToLoadoutSelection().
 
             for (int i = 0; i < _categoryCycleOrder.Length; i++)
             {

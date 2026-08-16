@@ -20,6 +20,7 @@
 // =============================================================================
 
 using System;
+using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -54,6 +55,19 @@ namespace OffAngle.Networking
 
         private void OnDestroy()
         {
+            // Also here, not just OnStopServer. This object lives only in the
+            // Lobby scene, and starting a match loads Game with
+            // ReplaceOption.All - which unloads Lobby and destroys it. If
+            // OnStopServer does not run during that unload, the ServerManager
+            // delegate below keeps pointing at a destroyed object for the whole
+            // match and every disconnect writes to a despawned SyncList.
+            // Unsubscribing twice is harmless; not unsubscribing is not.
+            //
+            // InstanceFinder rather than the inherited ServerManager property,
+            // which is unreliable once despawned.
+            if (InstanceFinder.ServerManager != null)
+                InstanceFinder.ServerManager.OnRemoteConnectionState -= HandleRemoteConnectionState;
+
             if (Instance == this)
                 Instance = null;
         }
@@ -81,6 +95,12 @@ namespace OffAngle.Networking
 
         private void HandleRemoteConnectionState(NetworkConnection conn, RemoteConnectionStateArgs args)
         {
+            // Belt and braces against a stale invocation reaching the SyncList
+            // after this object's scene was unloaded. `this == null` is Unity's
+            // destroyed-object check, not a real null.
+            if (this == null || !base.IsSpawned)
+                return;
+
             switch (args.ConnectionState)
             {
                 case RemoteConnectionState.Started:
