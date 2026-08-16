@@ -15,6 +15,10 @@
 //   controller can be reused headlessly (e.g. from an integration test) with
 //   no UI present.
 //
+//   It also owns SHUTDOWN, for the same reason it owns startup: it is the one
+//   place that may call FishNet. See LeaveSession() for why that matters --
+//   skipping it is what left ghost players in the match and hung the editor.
+//
 // PLACEMENT:
 //   Attach to the same GameObject that hosts the FishNet NetworkManager so its
 //   lifetime matches networking's. The Canvas can be hidden or destroyed
@@ -27,6 +31,7 @@ using FishNet;
 using FishNet.Transporting;
 using OffAngle.Networking.JoinCode;
 using UnityEngine;
+using UnitySceneManager = UnityEngine.SceneManagement.SceneManager;
 
 namespace OffAngle.Networking
 {
@@ -78,6 +83,13 @@ namespace OffAngle.Networking
 
         [Tooltip("Status message shown when the server could not bind its port (usually the port is already in use, or a firewall blocked it).")]
         [SerializeField] private string _serverStartFailedMessage = "Server failed to start - port may be in use";
+
+        [Tooltip("Status message shown after this peer deliberately left the session via LeaveSession().")]
+        [SerializeField] private string _leftSessionMessage = "Left the session";
+
+        [Header("Scene")]
+        [Tooltip("Scene loaded once a session ends -- whether this peer left, or the host shut the server down. Must be in Build Settings.")]
+        [SerializeField] private string _mainMenuSceneName = "MainMenu";
 
         // ------------------------------------------------------------------
         // Public events
@@ -144,6 +156,15 @@ namespace OffAngle.Networking
         private bool _awaitingHostServerStart;
         private string _pendingHostIpOverride;
 
+        // Set by LeaveSession so the Stopped callback can tell "I chose to
+        // leave" from "the host dropped me" -- both end at the main menu, but
+        // they say different things on the status label.
+        private bool _returningToMenu;
+
+        // Set once Application.quitting fires. Suppresses the scene load: the
+        // player loop is ending, and LoadScene during teardown is never valid.
+        private bool _isQuitting;
+
         // ------------------------------------------------------------------
         // Unity lifecycle
         // ------------------------------------------------------------------
@@ -174,11 +195,26 @@ namespace OffAngle.Networking
             // the only reliable success signal is the state callback.
             InstanceFinder.ServerManager.OnServerConnectionState += HandleServerConnectionState;
 
+            // The safety net for the case no UI can catch: pressing Stop in the
+            // editor (or Alt+F4 in a build) mid-session. Without this the
+            // connection is still live at teardown, and FishNet's only remaining
+            // shutdown path is Tugboat.OnDestroy -> NetManager.Stop(), which
+            // blocks the main thread on unbounded Thread.Join() calls
+            // (CommonSocket.cs:157 hardcodes the non-threaded branch in 4.7.2).
+            // Racing those joins against the three transport finalizers is what
+            // froze the editor. Stopping here, while the runtime is still alive,
+            // nulls the NetManager so every later path early-returns instead.
+            Application.quitting += HandleApplicationQuitting;
+
             RaiseStatus(_idleMessage);
         }
 
         private void OnDestroy()
         {
+            // Before the NetworkManager guard below -- this subscription is on
+            // a Unity static and must come off regardless of FishNet's state.
+            Application.quitting -= HandleApplicationQuitting;
+
             // Guard: NetworkManager may already have been destroyed if scenes
             // are unloading in a different order.
             if (InstanceFinder.NetworkManager == null)
@@ -368,6 +404,94 @@ namespace OffAngle.Networking
         }
 
         // ------------------------------------------------------------------
+        // Teardown
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Ends this peer's session and returns it to the main menu.
+        ///
+        /// This must be used instead of loading the menu scene directly. A plain
+        /// SceneManager.LoadScene only changes the LEAVING player's local scene --
+        /// they stay connected, so the server keeps their player object spawned
+        /// and it goes on taking damage, dying and respawning in a match they
+        /// already walked away from.
+        ///
+        /// On the host this also stops the server, which disconnects everyone
+        /// else; their own Stopped callback lands them back on the menu too.
+        ///
+        /// The scene load is deliberately deferred to the Stopped callback rather
+        /// than done here, so leaving voluntarily and being dropped by the host
+        /// travel the exact same path.
+        /// </summary>
+        public void LeaveSession()
+        {
+            if (_isQuitting)
+                return;
+
+            _returningToMenu = true;
+
+            // Nothing was running, so no Stopped callback is coming to load the
+            // menu for us -- do it directly.
+            if (!StopConnections())
+            {
+                _returningToMenu = false;
+                LoadMainMenu();
+            }
+        }
+
+        /// <summary>
+        /// Stops whichever of client/server is running. Returns true if anything
+        /// was actually stopped (i.e. a Stopped callback should be expected).
+        /// </summary>
+        private bool StopConnections()
+        {
+            bool stoppedAnything = false;
+
+            // Client before server, mirroring Tugboat.Shutdown()'s own order.
+            // Stopping the server first on a host tears the socket out from
+            // under the local client mid-disconnect.
+            if (InstanceFinder.ClientManager != null && InstanceFinder.IsClientStarted)
+            {
+                InstanceFinder.ClientManager.StopConnection();
+                stoppedAnything = true;
+            }
+
+            if (InstanceFinder.ServerManager != null && InstanceFinder.IsServerStarted)
+            {
+                // true = send a disconnect message, so remote clients learn why
+                // they dropped instead of waiting out a transport timeout.
+                InstanceFinder.ServerManager.StopConnection(true);
+                stoppedAnything = true;
+            }
+
+            return stoppedAnything;
+        }
+
+        private void HandleApplicationQuitting()
+        {
+            _isQuitting = true;
+            StopConnections();
+        }
+
+        // Plain Unity load, not FishNet's SceneManager: by this point there is
+        // no session left to synchronise, and FishNet's SceneManager only
+        // operates while connected. Everywhere else in this project -- see
+        // GameFlowController -- scenes must go through FishNet.
+        private void LoadMainMenu()
+        {
+            if (string.IsNullOrWhiteSpace(_mainMenuSceneName))
+            {
+                Debug.LogError($"[{nameof(NetworkMenuController)}] _mainMenuSceneName is empty; cannot return to the menu.", this);
+                return;
+            }
+
+            if (UnitySceneManager.GetActiveScene().name == _mainMenuSceneName)
+                return;
+
+            UnitySceneManager.LoadScene(_mainMenuSceneName);
+        }
+
+        // ------------------------------------------------------------------
         // FishNet callbacks
         // ------------------------------------------------------------------
 
@@ -396,13 +520,28 @@ namespace OffAngle.Networking
                     // passes through Stopping before Stopped even on a failed
                     // attempt (Starting → Stopping → Stopped), so "previous"
                     // is never a reliable signal here -- _hasReachedStarted is.
-                    string reason = _hasReachedStarted ? _disconnectedMessage : _connectionFailedMessage;
+                    bool hadSession = _hasReachedStarted;
+                    string reason = _returningToMenu ? _leftSessionMessage
+                                  : hadSession       ? _disconnectedMessage
+                                                     : _connectionFailedMessage;
 
                     _hasReachedStarted = false;
                     CurrentSessionCode = "";
                     CurrentHostAddress = "";
                     RaiseStatus(reason);
                     Disconnected?.Invoke(reason);
+
+                    // A session that actually existed always ends back at the
+                    // menu, whether we left or the host ended it -- this is what
+                    // stops clients being stranded in a dead Game scene.
+                    //
+                    // A FAILED attempt must not reload: it never left the menu,
+                    // and reloading would wipe the "Connection failed" message
+                    // the player needs to see.
+                    if (hadSession && !_isQuitting)
+                        LoadMainMenu();
+
+                    _returningToMenu = false;
                     break;
             }
         }

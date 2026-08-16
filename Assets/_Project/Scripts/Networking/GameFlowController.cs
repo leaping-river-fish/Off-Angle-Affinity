@@ -1,5 +1,6 @@
 // =============================================================================
-// GameFlowController — centralizes MainMenu -> Lobby -> Game scene sequencing.
+// GameFlowController — centralizes Bootstrap -> MainMenu -> Lobby -> Game
+// scene sequencing.
 //
 // ARCHITECTURE:
 //   NetworkMenuController only reports connection facts (ServerStarted);
@@ -15,17 +16,26 @@
 // PLACEMENT:
 //   Lives on the same persistent GameObject as NetworkManager (which already
 //   has DontDestroyOnLoad enabled), so it survives every scene transition.
+//   That object lives in the Bootstrap scene -- NOT in MainMenu. Keeping it out
+//   of MainMenu is what makes a duplicate NetworkManager impossible: returning
+//   to the menu used to re-instantiate one, and FishNet's DestroyNewest
+//   persistence then DestroyImmediate'd it along with the fresh menu's wiring.
 // =============================================================================
 
 using FishNet;
 using FishNet.Managing.Scened;
+using FishNet.Transporting;
 using UnityEngine;
+using UnitySceneManager = UnityEngine.SceneManagement.SceneManager;
 
 namespace OffAngle.Networking
 {
     public class GameFlowController : MonoBehaviour
     {
         public static GameFlowController Instance { get; private set; }
+
+        [Tooltip("Scene loaded on startup from Bootstrap. Clear this to disable the automatic first load.")]
+        [SerializeField] private string _mainMenuSceneName = "MainMenu";
 
         [Tooltip("Scene loaded once the server starts.")]
         [SerializeField] private string _lobbySceneName = "Lobby";
@@ -43,6 +53,11 @@ namespace OffAngle.Networking
             if (Instance != null && Instance != this)
             {
                 Debug.LogWarning($"[{nameof(GameFlowController)}] Duplicate instance detected; keeping the first.", this);
+
+                // Disabling here is what stops OnEnable running on the duplicate.
+                // It returns before _networkMenuController is resolved below, so
+                // an enabled duplicate would dereference null in OnEnable.
+                enabled = false;
                 return;
             }
             Instance = this;
@@ -51,14 +66,61 @@ namespace OffAngle.Networking
                 _networkMenuController = GetComponent<NetworkMenuController>();
         }
 
+        private void Start()
+        {
+            if (InstanceFinder.ServerManager != null)
+                InstanceFinder.ServerManager.OnServerConnectionState += HandleServerConnectionState;
+
+            // Bootstrap contains only the NetworkManager object, so something has
+            // to move the player to an actual screen. This runs exactly once:
+            // the object is DontDestroyOnLoad, so Start never fires again on
+            // later scene loads. Plain Unity load, not FishNet's -- there is no
+            // session yet, and FishNet's SceneManager only works while connected.
+            if (!string.IsNullOrWhiteSpace(_mainMenuSceneName) &&
+                UnitySceneManager.GetActiveScene().name != _mainMenuSceneName)
+            {
+                UnitySceneManager.LoadScene(_mainMenuSceneName);
+            }
+        }
+
         private void OnDestroy()
         {
+            if (InstanceFinder.ServerManager != null)
+                InstanceFinder.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
+
             if (Instance == this)
                 Instance = null;
         }
 
-        private void OnEnable() => _networkMenuController.ServerStarted += HandleServerStarted;
-        private void OnDisable() => _networkMenuController.ServerStarted -= HandleServerStarted;
+        // Null-guarded because Awake returns early on a duplicate. Belt and
+        // braces alongside the enabled = false above.
+        private void OnEnable()
+        {
+            if (_networkMenuController != null)
+                _networkMenuController.ServerStarted += HandleServerStarted;
+        }
+
+        private void OnDisable()
+        {
+            if (_networkMenuController != null)
+                _networkMenuController.ServerStarted -= HandleServerStarted;
+        }
+
+        // Match state is per-session, but this object is DontDestroyOnLoad, so
+        // without an explicit reset a SECOND match can never start:
+        // RequestStartGame() below returns immediately on the latched flag.
+        private void HandleServerConnectionState(ServerConnectionStateArgs args)
+        {
+            if (args.ConnectionState != LocalConnectionState.Stopped)
+                return;
+
+            _hasGameStarted = false;
+
+            // Still subscribed if the server stopped mid-load, i.e. before
+            // HandleGameSceneLoaded ever ran to remove it.
+            if (InstanceFinder.SceneManager != null)
+                InstanceFinder.SceneManager.OnLoadEnd -= HandleGameSceneLoaded;
+        }
 
         private void HandleServerStarted()
             => InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_lobbySceneName) { ReplaceScenes = ReplaceOption.All });

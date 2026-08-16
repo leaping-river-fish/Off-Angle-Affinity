@@ -9,6 +9,7 @@
 // =============================================================================
 
 using OffAngle.Core;
+using OffAngle.Networking;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -27,8 +28,11 @@ namespace OffAngle.UI
         [SerializeField] private GameObject _settingsPanelRoot;
 
         [Header("Scene")]
-        [Tooltip("Scene name loaded by Exit to Main Menu. Must be added to Build Settings.")]
+        [Tooltip("Fallback only. Exit to Main Menu normally goes through NetworkMenuController.LeaveSession(), which owns the scene name; this is used only when no controller exists (e.g. the Game scene was entered directly for a solo test).")]
         [SerializeField] private string _mainMenuSceneName = "MainMenu";
+
+        [Tooltip("Leave null to auto-resolve via FindFirstObjectByType. Lives on the persistent NetworkManager GameObject, a different scene than this prefab, so it cannot be Inspector-dragged.")]
+        [SerializeField] private NetworkMenuController _networkMenuController;
 
         [Header("Input & Camera")]
         [Tooltip("Leave null to auto-resolve via GetComponentInParent. PauseToggleStarted (Esc) toggles this menu.\n\nDo NOT hand-assign this by dragging the Player prefab asset's PlayerInputReader in - that points at the static prefab asset, not the live instantiated player, and will silently never fire. This menu must live under the Player's hierarchy (e.g. under HUD Canvas) so the auto-resolve can find the correct live instance.")]
@@ -162,6 +166,27 @@ namespace OffAngle.UI
 
         public void OnExitToMainMenuClicked()
         {
+            // Must go through the controller, not straight to LoadScene: a bare
+            // scene load only moves THIS player's local view. They stay
+            // connected, so the server keeps their character spawned and it goes
+            // on taking damage, dying and respawning while they sit in the menu.
+            // LeaveSession() stops the connection first and loads the menu once
+            // the disconnect is confirmed.
+            if (_networkMenuController == null)
+                _networkMenuController = FindFirstObjectByType<NetworkMenuController>();
+
+            if (_networkMenuController != null)
+            {
+                _networkMenuController.LeaveSession();
+                return;
+            }
+
+            // No controller at all means no NetworkManager, so there is no
+            // connection to leave and a plain load is the correct behaviour.
+            Debug.LogWarning(
+                $"[{nameof(PauseMenuUI)}] No {nameof(NetworkMenuController)} found; loading '{_mainMenuSceneName}' without a network shutdown. " +
+                "Expected only when the Game scene was entered directly rather than through Bootstrap.",
+                this);
             SceneManager.LoadScene(_mainMenuSceneName);
         }
 

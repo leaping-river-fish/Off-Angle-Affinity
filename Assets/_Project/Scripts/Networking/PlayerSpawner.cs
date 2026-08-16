@@ -76,6 +76,11 @@ namespace OffAngle.Networking
             if (Instance != null && Instance != this)
             {
                 Debug.LogWarning($"[{nameof(PlayerSpawner)}] Multiple instances found. Keeping the first on '{Instance.name}'.", this);
+
+                // Disabling here is what stops Start() running on the duplicate.
+                // Returning alone is not enough: Start() would still subscribe
+                // OnRemoteConnectionState a second time and double-spawn players.
+                enabled = false;
                 return;
             }
             Instance = this;
@@ -108,12 +113,16 @@ namespace OffAngle.Networking
             }
 
             InstanceFinder.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
+            InstanceFinder.ServerManager.OnServerConnectionState += OnServerConnectionState;
         }
 
         private void OnDestroy()
         {
             if (InstanceFinder.ServerManager != null)
+            {
                 InstanceFinder.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
+                InstanceFinder.ServerManager.OnServerConnectionState -= OnServerConnectionState;
+            }
 
             if (Instance == this)
                 Instance = null;
@@ -147,6 +156,23 @@ namespace OffAngle.Networking
         // ------------------------------------------------------------------
         // Server callbacks
         // ------------------------------------------------------------------
+
+        // Everything this spawner tracks is per-session, but the spawner itself
+        // is DontDestroyOnLoad. Without this reset the next match inherits the
+        // last one's state: _hasGameStarted in particular would make every
+        // joining player spawn immediately as join-in-progress instead of being
+        // queued for SpawnAll().
+        private void OnServerConnectionState(ServerConnectionStateArgs args)
+        {
+            if (args.ConnectionState != LocalConnectionState.Stopped)
+                return;
+
+            _hasGameStarted = false;
+            _pendingConnections.Clear();
+
+            // Point at Transforms in the now-unloaded Game scene.
+            _spawnPoints = null;
+        }
 
         private void OnRemoteConnectionState(NetworkConnection conn, RemoteConnectionStateArgs args)
         {

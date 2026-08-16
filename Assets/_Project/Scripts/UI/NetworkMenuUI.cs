@@ -32,7 +32,7 @@ namespace OffAngle.UI
     public class NetworkMenuUI : MonoBehaviour
     {
         [Header("Controller")]
-        [Tooltip("NetworkMenuController that owns all FishNet calls. Usually lives on the NetworkManager GameObject.")]
+        [Tooltip("Leave null to auto-resolve via FindFirstObjectByType. Lives on the persistent NetworkManager GameObject in the Bootstrap scene -- a different scene than this one, so it cannot be Inspector-dragged.")]
         [SerializeField] private NetworkMenuController _controller;
 
         [Header("Panel Root")]
@@ -55,6 +55,13 @@ namespace OffAngle.UI
 
         private void Awake()
         {
+            // Must be Awake, not OnEnable: OnEnable early-returns on a null
+            // controller and would silently never subscribe. The NetworkManager
+            // lives in Bootstrap and is DontDestroyOnLoad, so it always exists
+            // by the time this menu scene's Awake runs.
+            if (_controller == null)
+                _controller = FindFirstObjectByType<NetworkMenuController>();
+
             // Clear any initial text so the placeholder shows instead. The
             // placeholder itself is set here (rather than left as a static
             // Inspector value) so this is the one place that decides what it
