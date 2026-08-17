@@ -19,9 +19,17 @@ namespace OffAngle.Weapons
     {
         [SerializeField] private GunData _data;
         [SerializeField] private Transform _firePoint;
+        [SerializeField] private GameObject _particleSystem;
+        [Tooltip("Optional. Marks the gun's physical iron sight/reticle point. Its local +Z axis (blue arrow) must point along the sighting line (rear sight -> front sight -> target). When assigned, WeaponAdsController solves the ADS pose so this point/direction lines up with the camera instead of using AdsLocalPosition/AdsLocalRotation below. Leave unassigned to keep the hand-authored offset.")]
+        [SerializeField] private Transform _sightVector;
+
+        [Tooltip("Optional. Drives fire/reload animations via the \"" + FireAnimTrigger + "\"/\"" + ReloadAnimTrigger + "\" trigger parameters. Leave unassigned to skip animation entirely - a missing Animator, controller, or trigger parameter is treated as \"no animation\" rather than an error.")]
+        [SerializeField] private Animator _animator;
 
         public GunData Data => _data;
         public Transform FirePoint => _firePoint;
+        public GameObject ParticleSystem => _particleSystem;
+        public Transform SightVector => _sightVector;
         public int  MagazineAmmo => _magazineAmmo;
         public int  ReserveAmmo => _reserveAmmo;
         public bool IsReloading => _isReloading;
@@ -208,6 +216,38 @@ namespace OffAngle.Weapons
             if (_data.FireMode == FireMode.Burst)
                 _burstShotsRemaining--;
             RequestFire?.Invoke();
+            PlayFireAnimation();
+        }
+
+        // ------------------------------------------------------------------
+        // Animation - both triggers are best-effort. A gun with no Animator,
+        // no controller, or a controller that hasn't been given the matching
+        // trigger parameter yet just silently plays no animation instead of
+        // logging Unity's "parameter does not exist" warning or breaking fire/
+        // reload logic, which never waits on animation state.
+        // ------------------------------------------------------------------
+
+        private const string FireAnimTrigger = "Fire";
+        private const string ReloadAnimTrigger = "Reload";
+
+        private void PlayFireAnimation() => TryPlayAnimationTrigger(FireAnimTrigger);
+        private void PlayReloadAnimation() => TryPlayAnimationTrigger(ReloadAnimTrigger);
+
+        private void TryPlayAnimationTrigger(string trigger)
+        {
+            if (_animator == null || _animator.runtimeAnimatorController == null) return;
+            if (!HasTriggerParameter(trigger)) return;
+            _animator.SetTrigger(trigger);
+        }
+
+        private bool HasTriggerParameter(string parameterName)
+        {
+            foreach (AnimatorControllerParameter parameter in _animator.parameters)
+            {
+                if (parameter.type == AnimatorControllerParameterType.Trigger && parameter.name == parameterName)
+                    return true;
+            }
+            return false;
         }
 
         public void ResetCooldown()
@@ -223,9 +263,27 @@ namespace OffAngle.Weapons
         /// </summary>
         public void SetAmmoState(int magazineAmmo, int reserveAmmo, bool isReloading)
         {
+            bool reloadJustStarted = isReloading && !_isReloading;
+
             _magazineAmmo = magazineAmmo;
             _reserveAmmo = reserveAmmo;
             _isReloading = isReloading;
+
+            if (reloadJustStarted) PlayReloadAnimation();
+        }
+
+        // Editor-only visual aid for placing _sightVector - draws its local
+        // +Z (the sighting line WeaponAdsController aligns to the camera) as
+        // an arrow so it can be oriented correctly by eye.
+        private void OnDrawGizmosSelected()
+        {
+            if (_sightVector == null) return;
+
+            Gizmos.color = Color.cyan;
+            Vector3 origin = _sightVector.position;
+            Vector3 tip = origin + _sightVector.forward * 0.3f;
+            Gizmos.DrawLine(origin, tip);
+            Gizmos.DrawSphere(tip, 0.01f);
         }
     }
 }

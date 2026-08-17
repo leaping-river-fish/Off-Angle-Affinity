@@ -560,6 +560,10 @@ namespace OffAngle.Networking
             InstantShotBehavior behavior = data.ShotBehavior as InstantShotBehavior ?? DefaultHitscanBehavior;
             ShotContext ctx = new ShotContext(origin, direction, data, base.NetworkObject, transform.root, this);
             behavior.Fire(ctx);
+            if (_gun.ParticleSystem != null)
+            {
+                Instantiate(_gun.ParticleSystem,_gun.FirePoint);
+            }
         }
 
         /// <summary>

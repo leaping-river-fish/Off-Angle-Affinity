@@ -88,6 +88,13 @@ namespace OffAngle.Weapons
         private Vector3 _hipLocalPosition;
         private Quaternion _hipLocalRotation;
 
+        // Set whenever the equipped gun has a SightVector assigned - see
+        // ComputeSightAlignedAdsPose. When true, ApplyAdsEffects blends toward
+        // this computed pose instead of GunData.AdsLocalPosition/AdsLocalRotation.
+        private bool _hasSightAlignment;
+        private Vector3 _sightAdsLocalPosition;
+        private Quaternion _sightAdsLocalRotation;
+
         private float _adsBlend; // 0 = hip, 1 = fully aimed
         private float _targetAdsBlend;
 
@@ -283,6 +290,53 @@ namespace OffAngle.Weapons
                 _hipLocalPosition = _weaponHolder.localPosition;
                 _hipLocalRotation = _weaponHolder.localRotation;
             }
+
+            // If the new gun marks a physical sight point, solve for the ADS
+            // pose analytically instead of using GunData's hand-authored
+            // offset (see ComputeSightAlignedAdsPose).
+            _hasSightAlignment = newGun != null && newGun.SightVector != null
+                && ComputeSightAlignedAdsPose(newGun, out _sightAdsLocalPosition, out _sightAdsLocalRotation);
+        }
+
+        /// <summary>
+        /// Solves the weapon-holder local pose that places <paramref name="gun"/>'s
+        /// SightVector at the camera's world position/rotation - i.e. "looking
+        /// straight down the sight." Assumes the SightVector's local +Z axis is
+        /// the sighting line (rear sight -> front sight -> target), authored by
+        /// whoever places the empty on the gun mesh.
+        ///
+        /// Computed once per weapon equip (here, alongside the hip-pose cache)
+        /// rather than every frame: since Gun instances always sit at local
+        /// identity under _weaponHolder (see PlayerWeaponEquipper), the sight's
+        /// pose relative to _weaponHolder is constant for as long as this gun
+        /// stays equipped, so the solved target pose is too.
+        /// </summary>
+        private bool ComputeSightAlignedAdsPose(Gun gun, out Vector3 localPosition, out Quaternion localRotation)
+        {
+            localPosition = Vector3.zero;
+            localRotation = Quaternion.identity;
+
+            Transform sight = gun.SightVector;
+            Transform parent = _weaponHolder != null ? _weaponHolder.parent : null;
+            Transform cam = _cameraController != null ? _cameraController.CameraTransform : null;
+
+            if (sight == null || _weaponHolder == null || parent == null || cam == null)
+                return false;
+
+            // Sight's fixed local offset relative to the weapon holder.
+            Vector3 sightLocalPos = _weaponHolder.InverseTransformPoint(sight.position);
+            Quaternion sightLocalRot = Quaternion.Inverse(_weaponHolder.rotation) * sight.rotation;
+
+            // Solve for the weapon holder's world pose that puts the sight at
+            // the camera's world pose.
+            Quaternion holderWorldRot = cam.rotation * Quaternion.Inverse(sightLocalRot);
+            Vector3 holderWorldPos = cam.position - holderWorldRot * sightLocalPos;
+
+            // Convert into the weapon holder's local space (relative to its
+            // parent) for storage and blending.
+            localRotation = Quaternion.Inverse(parent.rotation) * holderWorldRot;
+            localPosition = parent.InverseTransformPoint(holderWorldPos);
+            return true;
         }
 
         // ------------------------------------------------------------------
@@ -332,10 +386,25 @@ namespace OffAngle.Weapons
             if (_currentGunData == null || _weaponHolder == null)
                 return;
 
-            // 1. Weapon position and rotation.
-            Vector3 targetPosition = Vector3.Lerp(_hipLocalPosition, _hipLocalPosition + _currentGunData.AdsLocalPosition, _adsBlend);
-            Quaternion adsRotation = Quaternion.Euler(_currentGunData.AdsLocalRotation);
-            Quaternion targetRotation = Quaternion.Slerp(_hipLocalRotation, _hipLocalRotation * adsRotation, _adsBlend);
+            // 1. Weapon position and rotation. When the equipped gun has a
+            // SightVector, blend toward the analytically-solved pose that
+            // lines the sight up with the camera instead of GunData's
+            // hand-authored offset (see ComputeSightAlignedAdsPose).
+            Vector3 adsLocalPosition;
+            Quaternion adsLocalRotation;
+            if (_hasSightAlignment)
+            {
+                adsLocalPosition = _sightAdsLocalPosition;
+                adsLocalRotation = _sightAdsLocalRotation;
+            }
+            else
+            {
+                adsLocalPosition = _hipLocalPosition + _currentGunData.AdsLocalPosition;
+                adsLocalRotation = _hipLocalRotation * Quaternion.Euler(_currentGunData.AdsLocalRotation);
+            }
+
+            Vector3 targetPosition = Vector3.Lerp(_hipLocalPosition, adsLocalPosition, _adsBlend);
+            Quaternion targetRotation = Quaternion.Slerp(_hipLocalRotation, adsLocalRotation, _adsBlend);
 
             _weaponHolder.localPosition = targetPosition;
             _weaponHolder.localRotation = targetRotation;

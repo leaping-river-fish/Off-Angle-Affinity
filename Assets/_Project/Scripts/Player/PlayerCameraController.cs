@@ -85,6 +85,13 @@ namespace OffAngle.Player
         public float DefaultFov => _defaultFov;
 
         /// <summary>
+        /// The actual Camera's transform (falls back to this component's transform
+        /// if no Camera is resolved). Used by WeaponAdsController to solve the
+        /// weapon-holder pose that aligns a gun's SightVector with the camera.
+        /// </summary>
+        public Transform CameraTransform => _camera != null ? _camera.transform : transform;
+
+        /// <summary>
         /// Current mouse sensitivity in degrees per pixel. Can be modified at
         /// runtime by ADS or other systems. WeaponAdsController multiplies this
         /// during aim to reduce sensitivity for precise aiming.
