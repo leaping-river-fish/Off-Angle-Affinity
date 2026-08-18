@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9976ac3403fe68142a0fb639d515b1c4, type: 3}
+  m_Name: Thorn
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
+  Id: thorn
+  DisplayName: Thorn
+  Icon: {fileID: 21300000, guid: db9dbdc922c56474bb2aef20dd7c0d5f, type: 3}
+  ThemeColor: {r: 1, g: 1, b: 1, a: 1}
+  DamageTag: 0
+  Passive: {fileID: 11400000, guid: 55f0e2b871082cc458f7b4f4fb4ad796, type: 2}
+  Ultimates:
+  - {fileID: 11400000, guid: 31a476ca36b5ce841b5b2789acfe225b, type: 2}
+  - {fileID: 11400000, guid: 41f8cd5709289534baced4effd0f23ad, type: 2}
+  - {fileID: 11400000, guid: 7d2643bf99416044891af7241c220e5f, type: 2}
+  PerkRows:
+  - Perks:
+    - {fileID: 11400000, guid: 297364641867f094ba2aa2504c92286e, type: 2}
+    - {fileID: 11400000, guid: ee9a682700ccea946aac8d9851d0caf3, type: 2}
+    - {fileID: 11400000, guid: 772d1854eba11884ca9618d774a65ec8, type: 2}
+  - Perks:
+    - {fileID: 11400000, guid: 714e4ef72c6e1aa42846d4eafa7ae67d, type: 2}
+    - {fileID: 11400000, guid: b40d260f32919e54c8a6175d02604202, type: 2}
+    - {fileID: 11400000, guid: c5a020ca97a70cc469a8bba94df464d1, type: 2}
+  - Perks:
+    - {fileID: 11400000, guid: cd5328e82aef1a8439470d3e71206077, type: 2}
+    - {fileID: 11400000, guid: fe898d4cc98b83d41a31696bb5698db9, type: 2}
+    - {fileID: 11400000, guid: f7662930ea784584ea92a05dd0f50ce8, type: 2}

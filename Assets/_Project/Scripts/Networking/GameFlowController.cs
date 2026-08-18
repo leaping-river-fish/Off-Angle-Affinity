@@ -1,6 +1,14 @@
 // =============================================================================
-// GameFlowController — centralizes Bootstrap -> MainMenu -> Lobby -> Game
-// scene sequencing.
+// GameFlowController — centralizes Bootstrap -> MainMenu -> Lobby ->
+// AffinitySelect -> Game scene sequencing.
+//
+// TWO STEPS, TWO LATCHES:
+//   The Lobby's Start button no longer loads Game directly. It loads the
+//   AffinitySelect scene (RequestStartMatch), and AffinitySelectCoordinator
+//   loads Game once its countdown expires or everyone is ready
+//   (RequestEnterGame). Each transition has its own latch so a second match can
+//   still run - a single shared flag would let one step's latch block the
+//   other's.
 //
 // ARCHITECTURE:
 //   NetworkMenuController only reports connection facts (ServerStarted);
@@ -40,13 +48,17 @@ namespace OffAngle.Networking
         [Tooltip("Scene loaded once the server starts.")]
         [SerializeField] private string _lobbySceneName = "Lobby";
 
-        [Tooltip("Scene loaded once the host clicks Start Game.")]
+        [Tooltip("Scene loaded once the host clicks Start Game. Players pick their Affinity here; AffinitySelectCoordinator loads the Game scene when its countdown ends.")]
+        [SerializeField] private string _affinitySelectSceneName = "AffinitySelect";
+
+        [Tooltip("Scene loaded once the Affinity selection countdown expires or every player is ready.")]
         [SerializeField] private string _gameSceneName = "Game";
 
         [Tooltip("Leave null to auto-resolve via GetComponent (same GameObject).")]
         [SerializeField] private NetworkMenuController _networkMenuController;
 
-        private bool _hasGameStarted;
+        private bool _hasEnteredAffinitySelect;
+        private bool _hasEnteredGame;
 
         private void Awake()
         {
@@ -108,13 +120,15 @@ namespace OffAngle.Networking
 
         // Match state is per-session, but this object is DontDestroyOnLoad, so
         // without an explicit reset a SECOND match can never start:
-        // RequestStartGame() below returns immediately on the latched flag.
+        // RequestStartMatch()/RequestEnterGame() below return immediately on
+        // their latched flags.
         private void HandleServerConnectionState(ServerConnectionStateArgs args)
         {
             if (args.ConnectionState != LocalConnectionState.Stopped)
                 return;
 
-            _hasGameStarted = false;
+            _hasEnteredAffinitySelect = false;
+            _hasEnteredGame = false;
 
             // Still subscribed if the server stopped mid-load, i.e. before
             // HandleGameSceneLoaded ever ran to remove it.
@@ -125,12 +139,29 @@ namespace OffAngle.Networking
         private void HandleServerStarted()
             => InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_lobbySceneName) { ReplaceScenes = ReplaceOption.All });
 
-        /// <summary>Called by LobbyMenuUI's Start Game button (host-only).</summary>
-        public void RequestStartGame()
+        /// <summary>
+        /// Called by LobbyMenuUI's Start Game button (host-only). Loads the
+        /// AffinitySelect scene, NOT the Game scene - the match itself starts from
+        /// there once players have chosen. See RequestEnterGame.
+        /// </summary>
+        public void RequestStartMatch()
         {
-            if (!InstanceFinder.IsServerStarted || _hasGameStarted)
+            if (!InstanceFinder.IsServerStarted || _hasEnteredAffinitySelect)
                 return;
-            _hasGameStarted = true;
+            _hasEnteredAffinitySelect = true;
+
+            InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_affinitySelectSceneName) { ReplaceScenes = ReplaceOption.All });
+        }
+
+        /// <summary>
+        /// Called by AffinitySelectCoordinator (host-only) when its countdown
+        /// expires or every player is ready. Loads the Game scene and spawns.
+        /// </summary>
+        public void RequestEnterGame()
+        {
+            if (!InstanceFinder.IsServerStarted || _hasEnteredGame)
+                return;
+            _hasEnteredGame = true;
 
             InstanceFinder.SceneManager.OnLoadEnd += HandleGameSceneLoaded;
             InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_gameSceneName) { ReplaceScenes = ReplaceOption.All });

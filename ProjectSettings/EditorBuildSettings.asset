@@ -15,6 +15,9 @@ EditorBuildSettings:
     path: Assets/_Project/Scenes/Lobby.unity
     guid: bf47bb238509e094788f4749226e7782
   - enabled: 1
+    path: Assets/_Project/Scenes/AffinitySelect.unity
+    guid: 6904e78c2872e094fb99d9a175a9ca0d
+  - enabled: 1
     path: Assets/_Project/Scenes/Game.unity
     guid: 0e188e9fb6c4e7a40b4bfd22e0faf368
   - enabled: 0

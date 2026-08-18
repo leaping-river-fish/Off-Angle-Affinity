@@ -16,6 +16,23 @@
 //   - DamageFeedback is a static event carrying (position, amount, affinity)
 //     for pure-UX feedback (damage numbers). Keeps gameplay -> UI dependency
 //     inverted: UI subscribes to gameplay, never the reverse.
+//   - ServerDamageApplied is a SERVER-ONLY static event carrying the finished
+//     numbers. Unlike DamageFeedback it never leaves the server and is meant
+//     for gameplay, not UX: ultimate charge, CombatMemory, and any future
+//     post-mitigation reaction (heal-on-damage-dealt, on-hit procs) all read
+//     it. One event, several consumers.
+//
+// THE TWO DAMAGE CHANNELS:
+//   Because this is the ONLY IDamageable implementer, every damage source in
+//   the game funnels through ApplyDamage - which makes it the one place worth
+//   inserting conditional modification. DamagePipeline runs the attacker's and
+//   victim's registered IDamageModifiers here and returns two numbers:
+//     - a shieldable amount, absorbed by the shield first as always
+//     - a shield-BYPASS amount, routed straight to health
+//   The bypass channel is generic (this game has no "true damage"); it exists
+//   so a perk can express partial shield penetration. Note the consequence: a
+//   hit can now be fully absorbed by the shield AND still reduce health, so
+//   there is no early return on "the shield ate it".
 // =============================================================================
 
 using System;
@@ -65,6 +82,21 @@ namespace OffAngle.Combat
         /// </summary>
         public static event Action<Vector3, float, AffinityType, DamageCategory> DamageFeedback;
 
+        /// <summary>
+        /// Server-only. Fires after damage has actually landed on any entity.
+        /// Args: (victim, info, amountApplied).
+        ///
+        /// amountApplied is what the hit really cost: shield absorbed plus health
+        /// actually lost. It EXCLUDES overkill, so a 500-damage hit on a 10 HP
+        /// target reports 10 - otherwise ultimate charge and any heal-on-damage
+        /// effect would pay out on damage that never existed.
+        ///
+        /// Raised AFTER the damage is applied, which means DamagePipeline's
+        /// modifiers see CombatMemory as it was BEFORE this hit. Opener perks
+        /// ("your first hit on a target...") depend on that ordering.
+        /// </summary>
+        public static event Action<NetworkObject, DamageInfo, float> ServerDamageApplied;
+
         // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------
@@ -113,20 +145,45 @@ namespace OffAngle.Combat
             if (IsDead) return;
             if (info.Amount <= 0f) return;
 
-            float remaining = _shield != null ? _shield.AbsorbDamage(info.Amount) : info.Amount;
-            
-            if (remaining <= 0f)
+            // Conditional perks adjust the hit here, BEFORE anything is applied and
+            // before CombatMemory records it. With no modifiers registered this
+            // returns info.Amount unchanged and zero bypass, so the pipeline is
+            // invisible until a perk uses it.
+            DamagePipeline.Resolve(info, this, _shield, out float shieldable, out float shieldBypass);
+
+            // A modifier is allowed to reduce a hit to nothing.
+            if (shieldable <= 0f && shieldBypass <= 0f) return;
+
+            float absorbed = 0f;
+            float toHealth = shieldBypass;
+
+            if (shieldable > 0f)
+            {
+                float leftover = _shield != null ? _shield.AbsorbDamage(shieldable) : shieldable;
+                absorbed = shieldable - leftover;
+                toHealth += leftover;
+            }
+
+            if (toHealth <= 0f)
             {
                 // Fully absorbed by the shield — health untouched, but still give the
                 // client a damage-number popup so the hit feels acknowledged.
-                RpcOnDamaged(info.HitPoint, info.Amount, info.Affinity, DamageCategory.Shield);
+                RpcOnDamaged(info.HitPoint, absorbed, info.Affinity, DamageCategory.Shield);
+                ServerDamageApplied?.Invoke(base.NetworkObject, info, absorbed);
                 return;
             }
 
-            float next = Mathf.Max(0f, _current.Value - remaining);
+            // Captured before the write so overkill can be excluded from what the
+            // hit is reported to have cost.
+            float previous = _current.Value;
+            float next = Mathf.Max(0f, previous - toHealth);
             _current.Value = next;
 
-            RpcOnDamaged(info.HitPoint, remaining, info.Affinity, info.Category);
+            RpcOnDamaged(info.HitPoint, toHealth, info.Affinity, info.Category);
+
+            // Before OnServerDied, so a killing blow still awards its charge and is
+            // still recorded in the attacker's combat memory.
+            ServerDamageApplied?.Invoke(base.NetworkObject, info, absorbed + (previous - next));
 
             if (next <= 0f)
                 OnServerDied?.Invoke(info);

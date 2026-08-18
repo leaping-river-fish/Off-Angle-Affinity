@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9976ac3403fe68142a0fb639d515b1c4, type: 3}
+  m_Name: Frost
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
+  Id: frost
+  DisplayName: Frost
+  Icon: {fileID: 21300000, guid: 9909785424fc3a44995f12eb12ab8253, type: 3}
+  ThemeColor: {r: 1, g: 1, b: 1, a: 1}
+  DamageTag: 0
+  Passive: {fileID: 11400000, guid: 778e627b2eba4d14a82743e9f0e459b1, type: 2}
+  Ultimates:
+  - {fileID: 11400000, guid: 602d5c3de5965694294f35c1291f043a, type: 2}
+  - {fileID: 11400000, guid: c4e2edb1f7a529348a65eb9b999bfa0f, type: 2}
+  - {fileID: 11400000, guid: 25d304e35e396f64587c00268ea69ca3, type: 2}
+  PerkRows:
+  - Perks:
+    - {fileID: 11400000, guid: 552dce1770257424aa1605cc21265016, type: 2}
+    - {fileID: 11400000, guid: 79b7d8a20d742eb45a435a6ce38a5f6e, type: 2}
+    - {fileID: 11400000, guid: 8dfdfc798d862d940b861717d2a09d6f, type: 2}
+  - Perks:
+    - {fileID: 11400000, guid: 499f2affddf999545a3cdc34b414ff99, type: 2}
+    - {fileID: 11400000, guid: 696e72d2a84d450409024f7e14d892da, type: 2}
+    - {fileID: 11400000, guid: 44173fe1efa3857449ceb5e13b14bd78, type: 2}
+  - Perks:
+    - {fileID: 11400000, guid: fea22f4ff6e8514499940a1aa6dee132, type: 2}
+    - {fileID: 11400000, guid: e160a3e899809534c8c8a87be2b6c5d6, type: 2}
+    - {fileID: 11400000, guid: 84bff9661ca63a644b7125f864c6fe65, type: 2}

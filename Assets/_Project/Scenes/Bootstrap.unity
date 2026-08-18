@@ -213,6 +213,7 @@ GameObject:
   - component: {fileID: 1874922821}
   - component: {fileID: 1874922823}
   - component: {fileID: 1874922822}
+  - component: {fileID: 1874922825}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -331,6 +332,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.GameFlowController
   _mainMenuSceneName: MainMenu
   _lobbySceneName: Lobby
+  _affinitySelectSceneName: AffinitySelect
   _gameSceneName: Game
   _networkMenuController: {fileID: 0}
 --- !u!114 &1874922824
@@ -353,6 +355,19 @@ MonoBehaviour:
   _maximumTimedObserversDuration: 10
   _defaultConditions:
   - {fileID: 11400000, guid: 65cc8df63e774cf49acf3bc012dd6899, type: 2}
+--- !u!114 &1874922825
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1874922816}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 839ce0ef9f73a064dada467c6ace4c8a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.LocalAffinitySelection
+  _registry: {fileID: 11400000, guid: 379dff9179fc3b04b9a344fc5d70fa20, type: 2}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

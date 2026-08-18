@@ -17,6 +17,17 @@
 //   connection that disconnects while still queued (pre-start) is simply
 //   dropped from the queue.
 //
+// AFFINITY READINESS GATE:
+//   SpawnAll() only spawns connections that have submitted an Affinity
+//   selection; anyone who has not stays QUEUED rather than being dropped, and
+//   is spawned by ServerSpawnIfReady the moment they submit. That is what makes
+//   "players who aren't ready simply aren't spawned yet" work without stalling
+//   the match for everyone else.
+//
+//   When no AffinitySelectionService exists - launching straight into the Game
+//   scene while testing - the gate is skipped entirely and behaviour is exactly
+//   as it was before: everyone spawns.
+//
 // WHY THIS LIVES ON A REGULAR MonoBehaviour:
 //   The spawner is server-side infrastructure, not a networked entity. Making
 //   it a NetworkBehaviour would require its own NetworkObject and spawn
@@ -114,6 +125,11 @@ namespace OffAngle.Networking
 
             InstanceFinder.ServerManager.OnRemoteConnectionState += OnRemoteConnectionState;
             InstanceFinder.ServerManager.OnServerConnectionState += OnServerConnectionState;
+
+            // Both singletons are set in Awake, so by Start this is resolved if the
+            // service exists at all.
+            if (AffinitySelectionService.Instance != null)
+                AffinitySelectionService.Instance.ServerReadyStateChanged += HandleReadyStateChanged;
         }
 
         private void OnDestroy()
@@ -123,6 +139,9 @@ namespace OffAngle.Networking
                 InstanceFinder.ServerManager.OnRemoteConnectionState -= OnRemoteConnectionState;
                 InstanceFinder.ServerManager.OnServerConnectionState -= OnServerConnectionState;
             }
+
+            if (AffinitySelectionService.Instance != null)
+                AffinitySelectionService.Instance.ServerReadyStateChanged -= HandleReadyStateChanged;
 
             if (Instance == this)
                 Instance = null;
@@ -183,6 +202,12 @@ namespace OffAngle.Networking
 
             if (args.ConnectionState == RemoteConnectionState.Started)
             {
+                // Join-in-progress is deliberately NOT gated on Affinity readiness.
+                // A late joiner missed the selection phase entirely and the
+                // coordinator that would have auto-filled them no longer exists, so
+                // gating here would strand them unspawnable forever. They spawn
+                // immediately and PlayerAffinity gives them the default build (see
+                // its PublishLoadoutFromService, which sanitizes a null selection).
                 if (_hasGameStarted)
                     SpawnOnceSceneLoaded(conn);
                 else if (!_pendingConnections.Contains(conn))
@@ -239,8 +264,25 @@ namespace OffAngle.Networking
         {
             _hasGameStarted = true;
 
-            List<NetworkConnection> connections = new List<NetworkConnection>(_pendingConnections);
+            // Only the ready ones spawn now. The rest STAY queued - dropping them
+            // here would leave them permanently unspawnable when they do submit.
+            List<NetworkConnection> connections = new List<NetworkConnection>();
+            List<NetworkConnection> stillWaiting = new List<NetworkConnection>();
+
+            for (int i = 0; i < _pendingConnections.Count; i++)
+            {
+                NetworkConnection conn = _pendingConnections[i];
+                if (IsSelectionReady(conn))
+                    connections.Add(conn);
+                else
+                    stillWaiting.Add(conn);
+            }
+
             _pendingConnections.Clear();
+            _pendingConnections.AddRange(stillWaiting);
+
+            if (stillWaiting.Count > 0)
+                Debug.Log($"[{nameof(PlayerSpawner)}] {stillWaiting.Count} player(s) have not submitted an Affinity selection and will spawn when they do.");
 
             List<Transform> shuffledPoints = null;
             if (_spawnPoints != null && _spawnPoints.Length > 0)
@@ -264,6 +306,39 @@ namespace OffAngle.Networking
 
                 SpawnFor(connections[i], point);
             }
+        }
+
+        /// <summary>
+        /// Spawns a connection that was left queued by SpawnAll because it had not
+        /// picked an Affinity yet. No-op if the match has not started, if the
+        /// connection is not queued (already spawned), or if it is still not ready.
+        /// </summary>
+        public void ServerSpawnIfReady(NetworkConnection conn)
+        {
+            if (!InstanceFinder.IsServerStarted) return;
+            if (!_hasGameStarted) return;
+            if (conn == null || !conn.IsActive) return;
+            if (!_pendingConnections.Contains(conn)) return;
+            if (!IsSelectionReady(conn)) return;
+
+            _pendingConnections.Remove(conn);
+
+            // Reuses the join-in-progress path, which already waits on this
+            // connection's own scene load before spawning.
+            SpawnOnceSceneLoaded(conn);
+        }
+
+        private void HandleReadyStateChanged(NetworkConnection conn) => ServerSpawnIfReady(conn);
+
+        /// <summary>
+        /// True when this connection may spawn. With no AffinitySelectionService in
+        /// the session the gate is open, preserving the original always-spawn
+        /// behaviour for direct-to-Game testing.
+        /// </summary>
+        private static bool IsSelectionReady(NetworkConnection conn)
+        {
+            AffinitySelectionService service = AffinitySelectionService.Instance;
+            return service == null || service.IsReady(conn);
         }
 
         private void SpawnFor(NetworkConnection conn, Transform explicitPoint)

@@ -90,6 +90,17 @@ namespace OffAngle.Combat
         public event Action OnLocalRespawned;
 
         /// <summary>
+        /// Server-only. Fires when this player is set alive again, mirroring
+        /// Health.OnServerDied on the other side of the cycle.
+        ///
+        /// Exists because the other two respawn signals above are OWNER-side, and
+        /// server-scoped Affinity effects need to re-apply too - a perk that
+        /// modifies shield regen or damage lives entirely on the server and would
+        /// otherwise never hear about a respawn.
+        /// </summary>
+        public event Action OnServerRespawned;
+
+        /// <summary>
         /// Fires on every peer whenever ANY player dies (mirrors Health.DamageFeedback's
         /// static-broadcast convention). Future kill feed / spectator systems subscribe
         /// here without requiring changes to this class.
@@ -195,6 +206,10 @@ namespace OffAngle.Combat
             _lifeState.Value = PlayerLifeState.Alive;
             _shield?.SetRegenLocked(false);
             RpcOnRespawned();
+
+            // After the RPC, so server-side subscribers observe the same "already
+            // alive again" state the owner does.
+            OnServerRespawned?.Invoke();
         }
 
         // ------------------------------------------------------------------

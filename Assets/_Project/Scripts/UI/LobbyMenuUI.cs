@@ -219,6 +219,8 @@ namespace OffAngle.UI
         // Button handlers
         // ------------------------------------------------------------------
 
-        private void OnStartGameClicked() => GameFlowController.Instance?.RequestStartGame();
+        // Loads the AffinitySelect scene, not the Game scene - the match starts
+        // from there once players have chosen. See GameFlowController.
+        private void OnStartGameClicked() => GameFlowController.Instance?.RequestStartMatch();
     }
 }
