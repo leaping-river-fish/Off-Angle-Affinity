@@ -102,6 +102,12 @@ namespace OffAngle.Networking
 
         private void OnDestroy()
         {
+            // Fires on every peer, server or client, the instant the AffinitySelect
+            // scene actually unloads locally - the single clearest signal for
+            // telling apart "the scene never unloaded for this peer" from "the
+            // scene unloaded but its UI didn't disappear with it".
+            Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Destroyed on this peer (AffinitySelect scene unloading here now). IsServer={IsServerInitialized}, IsClient={IsClientInitialized}.");
+
             if (Instance == this)
                 Instance = null;
         }
@@ -160,6 +166,7 @@ namespace OffAngle.Networking
                 AffinitySelectionService.Instance.AreAllConnectedReady())
             {
                 _affinitySelectFinalized = true;
+                Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Every connected player is ready (readyCount={AffinitySelectionService.Instance.ReadyCount}) - unloading AffinitySelect.");
                 GameFlowController.Instance?.RequestUnloadAffinitySelect();
             }
         }
@@ -228,6 +235,7 @@ namespace OffAngle.Networking
                 return;
             }
 
+            Debug.Log($"[{nameof(AffinitySelectCoordinator)}] BeginMatch - readyCount={AffinitySelectionService.Instance?.ReadyCount.ToString() ?? "n/a"}, connected clients={FishNet.InstanceFinder.ServerManager?.Clients.Count.ToString() ?? "n/a"}.");
             GameFlowController.Instance.RequestEnterGame();
         }
     }

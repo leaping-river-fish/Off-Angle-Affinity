@@ -49,9 +49,11 @@
 using System.Collections.Generic;
 using FishNet;
 using FishNet.Connection;
+using FishNet.Managing.Scened;
 using FishNet.Object;
 using FishNet.Transporting;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace OffAngle.Networking
 {
@@ -66,6 +68,12 @@ namespace OffAngle.Networking
         // local variable, because Respawner calls GetSpawnPoint() on every
         // mid-match respawn, not just the initial spawn.
         private SpawnPoint[] _spawnPoints;
+
+        // Captured alongside _spawnPoints, at the same moment GameFlowController
+        // has just forced Game to be the active scene - see SpawnOnceSceneLoaded
+        // for why this is needed rather than checking a connection's general
+        // "has this connection loaded anything yet" state.
+        private Scene _gameScene;
 
         // ------------------------------------------------------------------
         // Persistent singleton — Respawner queries GetSpawnPoint() here.
@@ -153,7 +161,14 @@ namespace OffAngle.Networking
         // ------------------------------------------------------------------
 
         public void ResolveSpawnPoints()
-            => _spawnPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
+        {
+            _spawnPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
+
+            // GameFlowController.HandleGameSceneLoaded calls SetActiveScene(Game)
+            // immediately before this, so the active scene right now IS Game -
+            // capturing it here needs no scene name of our own to hardcode.
+            _gameScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+        }
 
         // ------------------------------------------------------------------
         // Public spawn point query (used by Respawner)
@@ -191,6 +206,7 @@ namespace OffAngle.Networking
 
             // Point at Transforms in the now-unloaded Game scene.
             _spawnPoints = null;
+            _gameScene = default;
         }
 
         private void OnRemoteConnectionState(NetworkConnection conn, RemoteConnectionStateArgs args)
@@ -220,39 +236,58 @@ namespace OffAngle.Networking
         }
 
         /// <summary>
-        /// Join-in-progress spawn: waits for this connection's own Game scene
-        /// load to be confirmed before spawning a player for it.
+        /// Waits for this connection's own Game scene load to be confirmed
+        /// before spawning a player for it, then uses <paramref name="explicitPoint"/>
+        /// if given or a random configured point otherwise.
         /// RemoteConnectionState.Started fires the instant the raw transport
         /// connection is accepted - well before authentication or scene load
         /// - so spawning immediately here handed this brand-new connection
         /// observer visibility of already-spawned scene objects (e.g. Dummy
         /// targets in the Game scene) before its own client had registered
         /// that scene's NetworkObjects locally, producing FishNet's "SceneId
-        /// not found in SceneObjects" error. SpawnAll() already has an
-        /// equivalent guard for match-start players via GameFlowController
-        /// waiting on the SERVER's own scene load; this mirrors that for a
-        /// single late-joining CLIENT's own scene load.
+        /// not found in SceneObjects" error - the same race SpawnAll() used to
+        /// hit for match-start players, since the server's own Game-scene load
+        /// completing (which is all GameFlowController waited on) says nothing
+        /// about whether any given CLIENT has finished loading it yet. A
+        /// connection whose own load lagged received its spawn message before
+        /// it had a scene to put the object in, and FishNet parked it in its
+        /// internal MovedObjectsHolder scene instead - a player with no camera
+        /// and no working input, forever. Every caller now waits here.
+        ///
+        /// conn.Scenes, not conn.LoadedStartScenes(true), is the correct check:
+        /// LoadedStartScenes is a one-time, permanent latch that flips true the
+        /// first time a connection EVER finishes loading its very first scene
+        /// (Lobby, for every player here) and never resets - by the time Game
+        /// loads, every already-connected player's flag is already true
+        /// regardless of whether Game specifically has finished loading for
+        /// them, so it does not actually wait for anything at match start.
+        /// conn.Scenes is FishNet's own per-scene membership set, only gaining
+        /// _gameScene once this specific connection has confirmed loading it.
         /// </summary>
-        private void SpawnOnceSceneLoaded(NetworkConnection conn)
+        private void SpawnOnceSceneLoaded(NetworkConnection conn, Transform explicitPoint = null)
         {
-            if (conn.LoadedStartScenes(true))
+            if (conn.Scenes.Contains(_gameScene))
             {
-                SpawnFor(conn, null);
+                SpawnFor(conn, explicitPoint);
                 return;
             }
 
-            conn.OnLoadedStartScenes += HandleConnectionLoadedStartScenes;
+            Debug.Log($"[{nameof(PlayerSpawner)}] Connection {conn.ClientId} is ready to spawn but hasn't finished loading the Game scene locally yet - waiting.");
+            InstanceFinder.SceneManager.OnClientPresenceChangeEnd += HandlePresenceChangeEnd;
 
-            void HandleConnectionLoadedStartScenes(NetworkConnection loadedConn, bool asServer)
+            void HandlePresenceChangeEnd(ClientPresenceChangeEventArgs args)
             {
-                if (!asServer || loadedConn != conn) return;
+                if (!args.Added || args.Connection != conn || args.Scene != _gameScene) return;
 
-                conn.OnLoadedStartScenes -= HandleConnectionLoadedStartScenes;
+                InstanceFinder.SceneManager.OnClientPresenceChangeEnd -= HandlePresenceChangeEnd;
 
                 // Connection may have disconnected while its scene load was
                 // still pending - do not spawn a player for a dead connection.
                 if (conn.IsActive)
-                    SpawnFor(conn, null);
+                {
+                    Debug.Log($"[{nameof(PlayerSpawner)}] Connection {conn.ClientId} finished loading the Game scene - spawning now.");
+                    SpawnFor(conn, explicitPoint);
+                }
             }
         }
 
@@ -281,6 +316,7 @@ namespace OffAngle.Networking
             _pendingConnections.Clear();
             _pendingConnections.AddRange(stillWaiting);
 
+            Debug.Log($"[{nameof(PlayerSpawner)}] SpawnAll: {connections.Count} ready connection(s) spawning now, {stillWaiting.Count} still waiting on an Affinity selection.");
             if (stillWaiting.Count > 0)
                 Debug.Log($"[{nameof(PlayerSpawner)}] {stillWaiting.Count} player(s) have not submitted an Affinity selection and will spawn when they do.");
 
@@ -304,7 +340,11 @@ namespace OffAngle.Networking
                     point = shuffledPoints[i % shuffledPoints.Count];
                 }
 
-                SpawnFor(connections[i], point);
+                // Point assignment happens up front, here, so the shuffled/
+                // unique-per-player guarantee survives the wait below even
+                // though connections resolve their own scene load at different
+                // times. See SpawnOnceSceneLoaded for why this waits at all.
+                SpawnOnceSceneLoaded(connections[i], point);
             }
         }
 

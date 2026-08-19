@@ -153,6 +153,11 @@ namespace OffAngle.UI.Affinities
 
         private void OnDestroy()
         {
+            // If this never logs while AffinitySelectCoordinator's own OnDestroy
+            // does, the scene unloaded but this Canvas somehow survived it - if
+            // neither logs, the scene never unloaded for this peer at all.
+            Debug.Log($"[{nameof(AffinitySelectMenuUI)}] Destroyed on this peer.");
+
             if (_primaryToggleButton != null)
                 _primaryToggleButton.onClick.RemoveListener(HandlePrimaryToggleClicked);
             if (_secondaryToggleButton != null)

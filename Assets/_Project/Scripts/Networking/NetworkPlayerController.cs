@@ -140,13 +140,36 @@ namespace OffAngle.Networking
             // PlayerInputReader.OnEnable must run BEFORE PlayerCameraController.OnEnable
             // (which is inside _cameraRoot.SetActive) so the camera's seed read of
             // _inputReader.LookEvent attaches to a fully-initialised reader.
-            if (_inputReader != null)  _inputReader.enabled  = true;
-            if (_stateMachine != null) _stateMachine.enabled = true;
-            if (_cameraRoot != null)   _cameraRoot.SetActive(true);
-            if (_hudRoot != null)      _hudRoot.SetActive(true);
+            //
+            // Each step is isolated: an exception thrown while enabling the input
+            // reader or state machine (e.g. from a downstream OnEnable) used to
+            // abort this method entirely, silently skipping the camera/HUD lines
+            // below it and leaving the local player spawned with no active camera
+            // and no way to move - "no cameras rendering" with nothing in the
+            // Console to explain why. Logging and continuing means the worst case
+            // is a broken input feature, never a player stuck unable to see or act.
+            TryStep(() => { if (_inputReader != null) _inputReader.enabled = true; }, nameof(_inputReader));
+            TryStep(() => { if (_stateMachine != null) _stateMachine.enabled = true; }, nameof(_stateMachine));
+            TryStep(() => { if (_cameraRoot != null) _cameraRoot.SetActive(true); }, nameof(_cameraRoot));
+            TryStep(() => { if (_hudRoot != null) _hudRoot.SetActive(true); }, nameof(_hudRoot));
+
+            Debug.Log($"[{nameof(NetworkPlayerController)}] {name} owner components activated. cameraRootActive={_cameraRoot != null && _cameraRoot.activeSelf}, stateMachineEnabled={_stateMachine != null && _stateMachine.enabled}");
 
             if (_ensureControllerEnabledCoroutine == null)
                 _ensureControllerEnabledCoroutine = StartCoroutine(EnsureControllerEnabled());
+        }
+
+        private void TryStep(Action step, string stepName)
+        {
+            try
+            {
+                step();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[{nameof(NetworkPlayerController)}] {name} threw while activating '{stepName}' - continuing with the remaining owner components rather than leaving them off.", this);
+                Debug.LogException(e, this);
+            }
         }
 
         // Repeatedly (not just once, one frame later) forces the controller
