@@ -153,6 +153,8 @@ namespace OffAngle.Networking
             TryStep(() => { if (_cameraRoot != null) _cameraRoot.SetActive(true); }, nameof(_cameraRoot));
             TryStep(() => { if (_hudRoot != null) _hudRoot.SetActive(true); }, nameof(_hudRoot));
 
+            Debug.Log($"[{nameof(NetworkPlayerController)}] {name} ActivateOwnerComponents ran. cameraRootActive={_cameraRoot != null && _cameraRoot.activeSelf}.");
+
             if (_ensureControllerEnabledCoroutine == null)
                 _ensureControllerEnabledCoroutine = StartCoroutine(EnsureControllerEnabled());
         }

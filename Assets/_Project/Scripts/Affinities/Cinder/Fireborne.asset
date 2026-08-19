@@ -13,5 +13,6 @@ MonoBehaviour:
   m_Name: Fireborne
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityPassive
   DisplayName: Fireborne
+  Icon: {fileID: 21300000, guid: f694a799a603f3d48ab57ea37a3f5997, type: 3}
   Description: 
   Effects: []

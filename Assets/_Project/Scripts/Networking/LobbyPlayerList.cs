@@ -25,6 +25,7 @@ using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using FishNet.Transporting;
+using UnityEngine;
 
 namespace OffAngle.Networking
 {
@@ -49,6 +50,22 @@ namespace OffAngle.Networking
 
         private void Awake()
         {
+            // Guards only the static pointer, not the whole component: unlike
+            // PlayerSpawner/GameFlowController (plain MonoBehaviours where a
+            // duplicate would double-subscribe events in their own Start()),
+            // this is a FishNet-driven NetworkBehaviour - its real lifecycle
+            // runs through OnStartServer/OnStartClient, not Unity's
+            // Awake/Start/enabled, so disabling the component here wouldn't be
+            // a verified-safe way to stop FishNet's own callbacks and isn't
+            // needed for the one thing actually at risk: a second instance's
+            // Awake() silently clobbering Instance out from under whichever
+            // peer/UI is still reading the first one.
+            if (Instance != null && Instance != this)
+            {
+                Debug.LogWarning($"[{nameof(LobbyPlayerList)}] Duplicate instance detected; keeping the first.", this);
+                return;
+            }
+
             Instance = this;
             InstanceReady?.Invoke();
         }

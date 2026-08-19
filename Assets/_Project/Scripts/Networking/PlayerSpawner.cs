@@ -227,6 +227,15 @@ namespace OffAngle.Networking
                 // than spawned with a default build or made to pick mid-match.
                 if (_hasGameStarted)
                 {
+                    // Kick() never sends KickReason to the client - only this
+                    // broadcast, sent first, lets NetworkMenuController show
+                    // something more specific than the generic "Disconnected"
+                    // it would otherwise be indistinguishable from.
+                    // requireAuthenticated: false because this connection has
+                    // only just reached Started - it may not have completed
+                    // FishNet's own authentication handshake yet.
+                    InstanceFinder.ServerManager.Broadcast(conn, new MatchAlreadyStartedBroadcast(), requireAuthenticated: false);
+
                     conn.Kick(KickReason.Unset, LoggingType.Common,
                         $"[{nameof(PlayerSpawner)}] Rejected connection {conn.ClientId} - the match has already started.");
                     return;
@@ -357,11 +366,28 @@ namespace OffAngle.Networking
         public void ServerSpawnIfReady(NetworkConnection conn)
         {
             if (!InstanceFinder.IsServerStarted) return;
-            if (!_hasGameStarted) return;
-            if (conn == null || !conn.IsActive) return;
-            if (!_pendingConnections.Contains(conn)) return;
-            if (!IsSelectionReady(conn)) return;
+            if (!_hasGameStarted)
+            {
+                Debug.Log($"[{nameof(PlayerSpawner)}] ServerSpawnIfReady({conn?.ClientId}) no-op: game hasn't started yet.");
+                return;
+            }
+            if (conn == null || !conn.IsActive)
+            {
+                Debug.Log($"[{nameof(PlayerSpawner)}] ServerSpawnIfReady no-op: connection null or inactive.");
+                return;
+            }
+            if (!_pendingConnections.Contains(conn))
+            {
+                Debug.Log($"[{nameof(PlayerSpawner)}] ServerSpawnIfReady({conn.ClientId}) no-op: not in _pendingConnections (already spawned, or never queued).");
+                return;
+            }
+            if (!IsSelectionReady(conn))
+            {
+                Debug.Log($"[{nameof(PlayerSpawner)}] ServerSpawnIfReady({conn.ClientId}) no-op: not ready yet.");
+                return;
+            }
 
+            Debug.Log($"[{nameof(PlayerSpawner)}] ServerSpawnIfReady({conn.ClientId}) - spawning now.");
             _pendingConnections.Remove(conn);
 
             // Reuses the join-in-progress path, which already waits on this
@@ -393,6 +419,8 @@ namespace OffAngle.Networking
             // networked object visible to all clients with `conn` as owner.
             NetworkObject instance = Instantiate(_playerPrefab, position, rotation);
             InstanceFinder.ServerManager.Spawn(instance, conn);
+
+            Debug.Log($"[{nameof(PlayerSpawner)}] SpawnFor({conn.ClientId}) - Instantiate + Spawn called at {position}, active scene at instantiation time was '{UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}'.");
         }
 
         private (Vector3 position, Quaternion rotation) NextSpawnPoint()
