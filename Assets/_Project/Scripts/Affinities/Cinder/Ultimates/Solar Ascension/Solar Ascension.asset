@@ -14,7 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.UltimateDefinition
   Id: solar_ascension
   DisplayName: Solar Ascension
-  Icon: {fileID: 0}
-  Description: 
+  Icon: {fileID: 21300000, guid: 1dd97bcf51452c043bf48d6f79635f08, type: 3}
+  Description: Ascend into the sky, hovering out of reach while raining fireballs
+    that explode and leave behind burning ground. Grants bonus shield for the
+    duration - you can still be killed while ascended.
   RequiredCharge: 100
-  Behavior: {fileID: 0}
+  Behavior: {fileID: 11400000, guid: b1cc8027b5344fa5b94702699161bb85, type: 2}

@@ -10,10 +10,10 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e761bd9f5894a2944acf2062d566726f, type: 3}
-  m_Name: After Burn
+  m_Name: Trail Blazer
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
-  Id: after_burn
-  DisplayName: After Burn
+  Id: trail_blazer
+  DisplayName: Trail Blazer
   Icon: {fileID: 0}
   Description: 
   Effects: []

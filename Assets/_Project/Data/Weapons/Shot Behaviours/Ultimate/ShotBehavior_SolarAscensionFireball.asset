@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66bc70f16fd08a44e8e074bacff7767b, type: 3}
+  m_Name: ShotBehavior_SolarAscensionFireball
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.ProjectileShotBehavior
+  ProjectilePrefab: {fileID: 2120456719034822156, guid: 6b0b7511d6484e968f3767c690280be3, type: 3}
+  Speed: 100
+  UseGravity: 0
+  Lifetime: 5
+  SplashRadius: 10
+  SplashDamage: 50
+  ImpactZonePrefab: {fileID: 1000000000000004, guid: 5ff9f11d54354d1d81f0c5e0e82487c2, type: 3}

@@ -54,6 +54,7 @@ namespace OffAngle.Core
         public event Action FireStarted;
         public event Action FireCanceled;
         public event Action ReloadStarted;
+        public event Action UltimateStarted;
 
         // Grapple is hold-to-use: GrappleStarted fires on press,
         // GrappleCanceled fires on release. GrapplingState uses both.
@@ -94,6 +95,7 @@ namespace OffAngle.Core
         private InputAction _aim;
         private InputAction _fire;
         private InputAction _reload;
+        private InputAction _ultimate;
         private InputAction _grapple;
         private InputAction _crouchSlide;
         private InputAction _interact;
@@ -161,6 +163,7 @@ namespace OffAngle.Core
             _aim          = map.FindAction("Aim",          throwIfNotFound: true);
             _fire         = map.FindAction("Fire",         throwIfNotFound: true);
             _reload       = map.FindAction("Reload",       throwIfNotFound: true);
+            _ultimate     = map.FindAction("Ultimate",     throwIfNotFound: true);
             _grapple      = map.FindAction("Grapple",      throwIfNotFound: true);
             _crouchSlide  = map.FindAction("CrouchSlide",  throwIfNotFound: true);
             _interact     = map.FindAction("Interact",     throwIfNotFound: true);
@@ -200,6 +203,7 @@ namespace OffAngle.Core
             _fire.performed         += OnFire;
             _fire.canceled          += OnFireCanceled;
             _reload.performed       += OnReload;
+            _ultimate.performed     += OnUltimate;
             _grapple.performed      += OnGrapplePerformed;
             _grapple.canceled       += OnGrappleCanceled;
             _crouchSlide.performed  += OnCrouchSlidePerformed;
@@ -233,6 +237,7 @@ namespace OffAngle.Core
             _fire.performed         -= OnFire;
             _fire.canceled          -= OnFireCanceled;
             _reload.performed       -= OnReload;
+            _ultimate.performed     -= OnUltimate;
             _grapple.performed      -= OnGrapplePerformed;
             _grapple.canceled       -= OnGrappleCanceled;
             _crouchSlide.performed  -= OnCrouchSlidePerformed;
@@ -316,6 +321,9 @@ namespace OffAngle.Core
 
         private void OnReload(InputAction.CallbackContext ctx)
             => ReloadStarted?.Invoke();
+
+        private void OnUltimate(InputAction.CallbackContext ctx)
+            => UltimateStarted?.Invoke();
 
         private void OnGrapplePerformed(InputAction.CallbackContext ctx)
             => GrappleStarted?.Invoke();

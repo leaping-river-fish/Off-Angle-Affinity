@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9976ac3403fe68142a0fb639d515b1c4, type: 3}
   m_Name: Tide
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
-  Id: tide
+  Id: 2_tide
   DisplayName: Tide
   Icon: {fileID: 21300000, guid: 3c22ba204d8ae904ca933855f6b76c66, type: 3}
   ThemeColor: {r: 1, g: 1, b: 1, a: 1}
@@ -29,7 +29,7 @@ MonoBehaviour:
     - {fileID: 11400000, guid: 047c4a7e318e5d8468d132489c0ee66f, type: 2}
   - Perks:
     - {fileID: 11400000, guid: 09ca3af1bab8a1049940a2863e908711, type: 2}
-    - {fileID: 11400000, guid: 301e94959976e3f46a02ed6417dff0aa, type: 2}
+    - {fileID: 11400000, guid: c49c20bb745fe0a45bd58c15655d36d7, type: 2}
     - {fileID: 11400000, guid: 7d27cb21cd030714cac90b31a5ffb037, type: 2}
   - Perks:
     - {fileID: 11400000, guid: eeb7c98a33fdf11458da3aa65e1fb7f2, type: 2}

@@ -50,7 +50,11 @@ namespace OffAngle.Editor
         {
             string[] guids = AssetDatabase.FindAssets("t:AffinityDefinition");
 
-            registry.AllAffinities.Clear();
+            List<AffinityDefinition> existingOrder = registry.AllAffinities
+                .Where(a => a != null)
+                .ToList();
+
+            var found = new List<AffinityDefinition>();
 
             foreach (string guid in guids)
             {
@@ -59,12 +63,15 @@ namespace OffAngle.Editor
 
                 if (affinity != null)
                 {
-                    registry.AllAffinities.Add(affinity);
+                    found.Add(affinity);
                 }
             }
 
-            registry.AllAffinities = registry.AllAffinities
-                .OrderBy(a => a.DisplayName)
+            // Preserve the existing (hand-arranged) order for affinities that are
+            // still present, then append any newly discovered ones alphabetically.
+            registry.AllAffinities = existingOrder
+                .Where(a => found.Contains(a))
+                .Concat(found.Except(existingOrder).OrderBy(a => a.DisplayName))
                 .ToList();
 
             EditorUtility.SetDirty(registry);

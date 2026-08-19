@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityRegistry
   AllAffinities:
   - {fileID: 11400000, guid: 2afa609d81dd8014d8369b3d5b957ea6, type: 2}
-  - {fileID: 11400000, guid: e31b760a617d93349b37620372f42c41, type: 2}
-  - {fileID: 11400000, guid: 5024e4c0df4dc144a86497aa3a6f549a, type: 2}
-  - {fileID: 11400000, guid: e34b89531a03c084bb575f00c2e5eaaa, type: 2}
   - {fileID: 11400000, guid: ec6344d4580282d4e81d7926989b1d02, type: 2}
+  - {fileID: 11400000, guid: e34b89531a03c084bb575f00c2e5eaaa, type: 2}
+  - {fileID: 11400000, guid: 5024e4c0df4dc144a86497aa3a6f549a, type: 2}
+  - {fileID: 11400000, guid: e31b760a617d93349b37620372f42c41, type: 2}
   - {fileID: 11400000, guid: bee3ff5ebb0b89945b7838f66b200b17, type: 2}
   DefaultAffinity: {fileID: 11400000, guid: 2afa609d81dd8014d8369b3d5b957ea6, type: 2}

@@ -17,4 +17,4 @@ MonoBehaviour:
   Icon: {fileID: 0}
   Description: 
   RequiredCharge: 100
-  Behavior: {fileID: 0}
+  Behavior: {fileID: 11400000, guid: 3699515889f634c4abb4dac3ce49aa0d, type: 2}

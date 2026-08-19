@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9976ac3403fe68142a0fb639d515b1c4, type: 3}
   m_Name: Thorn
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
-  Id: thorn
+  Id: 3_thorn
   DisplayName: Thorn
   Icon: {fileID: 21300000, guid: db9dbdc922c56474bb2aef20dd7c0d5f, type: 3}
   ThemeColor: {r: 1, g: 1, b: 1, a: 1}

@@ -24,14 +24,16 @@
 //   server-side. Same split PlayerGrapple uses.
 //
 // INPUT:
-//   Intentionally none yet. TryActivate() is public so a debug button, a HUD
-//   button, or a future keybind can drive it. Adding the keybind means an
-//   Ultimate action in Player Inputs.inputactions plus an event on
-//   PlayerInputReader, which is the only file allowed to import the Input
-//   System.
+//   Wired to the Ultimate action in Player Inputs.inputactions via
+//   PlayerInputReader.UltimateStarted, the only file allowed to import the
+//   Input System. Subscription is owner-gated in OnStartClient/OnStopClient,
+//   the same shape PlayerGrapple uses for GrappleStarted.
 //
 // MANUAL SETUP:
-//   Add to the Player prefab root, alongside PlayerAffinity.
+//   Add to the Player prefab root, alongside PlayerAffinity. Assign
+//   _inputReader in the Inspector - it is not auto-resolved, matching
+//   PlayerGrapple (PlayerInputReader lives on a different GameObject, so
+//   GetComponent would not find it).
 // =============================================================================
 
 using System;
@@ -39,6 +41,7 @@ using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using OffAngle.Affinities;
 using OffAngle.Combat;
+using OffAngle.Core;
 using OffAngle.Movement;
 using UnityEngine;
 
@@ -51,6 +54,12 @@ namespace OffAngle.Networking
         [SerializeField] private Health _health;
         [SerializeField] private PlayerLifecycleController _lifecycle;
         [SerializeField] private MovementStateMachine _movement;
+
+        [Tooltip("Optional. When assigned, charge gain (passive trickle and damage-based) pauses for as long as this reports IsActive - e.g. while Solar Ascension's active window is running, so an ultimate cannot fully recharge inside its own duration. Left null, charge is never paused this way.")]
+        [SerializeField] private UltimateDurationEffect _durationEffect;
+
+        [Tooltip("Not auto-resolved - assign in the Inspector. PlayerInputReader lives on a different GameObject, same as PlayerGrapple._inputReader.")]
+        [SerializeField] private PlayerInputReader _inputReader;
 
         [Header("Charge gain (global — per-ultimate cost lives on UltimateDefinition)")]
         [Tooltip("Charge granted per 1 point of damage dealt to another entity. Self-damage never counts.")]
@@ -121,6 +130,7 @@ namespace OffAngle.Networking
             if (_health == null) _health = GetComponent<Health>();
             if (_lifecycle == null) _lifecycle = GetComponent<PlayerLifecycleController>();
             if (_movement == null) _movement = GetComponent<MovementStateMachine>();
+            if (_durationEffect == null) _durationEffect = GetComponent<UltimateDurationEffect>();
 
             _charge.OnChange += HandleChargeChanged;
         }
@@ -184,6 +194,9 @@ namespace OffAngle.Networking
             // Seed subscribers directly; a SyncVar's initial replicated value never
             // raises OnChange (same caveat Health and Shield document).
             OnChargeChanged?.Invoke(_charge.Value, RequiredCharge);
+
+            if (IsOwner && _inputReader != null)
+                _inputReader.UltimateStarted += TryActivate;
         }
 
         public override void OnStopClient()
@@ -193,6 +206,9 @@ namespace OffAngle.Networking
             try
             {
                 AffinityEvents.LoadoutApplied -= HandleLoadoutApplied;
+
+                if (IsOwner && _inputReader != null)
+                    _inputReader.UltimateStarted -= TryActivate;
             }
             catch (Exception e)
             {
@@ -242,6 +258,12 @@ namespace OffAngle.Networking
         {
             if (amount <= 0f) return;
 
+            // Paused for as long as the ultimate's own active window is
+            // running (e.g. Solar Ascension's 8s duration) - otherwise
+            // damage dealt/taken and the passive trickle during the ultimate
+            // could fully recharge it again before it even ends.
+            if (_durationEffect != null && _durationEffect.IsActive) return;
+
             // Nothing selected yet means nothing to charge toward. Skipping rather
             // than banking prevents charge running away for a player whose loadout
             // never arrives, and the loadout applies at spawn so nothing real is
@@ -265,30 +287,33 @@ namespace OffAngle.Networking
         /// </summary>
         public void TryActivate()
         {
-            if (!IsOwner) return;
-            if (!IsReady) return;
-            if (_lifecycle != null && _lifecycle.IsDead) return;
+            if (!IsOwner) { Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate blocked: not owner"); return; } // TEMP DEBUG
+            if (!IsReady) { Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate blocked: not ready (charge={_charge.Value:F2}, required={RequiredCharge:F2})"); return; } // TEMP DEBUG
+            if (_lifecycle != null && _lifecycle.IsDead) { Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate blocked: dead"); return; } // TEMP DEBUG
 
             // Owner-only gate: meaningless on a server that is not running this
             // player's movement.
-            if (_movement != null && !_movement.CanStartMovementAction()) return;
+            if (_movement != null && !_movement.CanStartMovementAction()) { Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate blocked: CanStartMovementAction() false"); return; } // TEMP DEBUG
 
+            Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate passed all gates, sending CmdActivate"); // TEMP DEBUG
             CmdActivate();
         }
 
         [ServerRpc]
         private void CmdActivate()
         {
-            if (!IsServerInitialized) return;
+            if (!IsServerInitialized) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: server not initialized"); return; } // TEMP DEBUG
 
             UltimateDefinition ultimate = _affinity != null ? _affinity.SelectedUltimate : null;
-            if (ultimate == null || ultimate.Behavior == null) return;
+            if (ultimate == null || ultimate.Behavior == null) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: ultimate={ultimate}, behavior={(ultimate != null ? ultimate.Behavior : null)}"); return; } // TEMP DEBUG
 
-            if (_charge.Value < ultimate.RequiredCharge) return;
-            if (_lifecycle != null && _lifecycle.IsDead) return;
+            if (_charge.Value < ultimate.RequiredCharge) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: server charge={_charge.Value:F2} < required={ultimate.RequiredCharge:F2}"); return; } // TEMP DEBUG
+            if (_lifecycle != null && _lifecycle.IsDead) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: dead (server)"); return; } // TEMP DEBUG
 
             AffinityRuntimeContext context = _affinity.Context;
-            if (context == null) return;
+            if (context == null) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: null context"); return; } // TEMP DEBUG
+
+            Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate activating '{ultimate.DisplayName}'"); // TEMP DEBUG
 
             ultimate.Behavior.ServerActivate(context);
 

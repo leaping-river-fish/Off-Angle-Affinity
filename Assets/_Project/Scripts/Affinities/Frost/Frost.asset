@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9976ac3403fe68142a0fb639d515b1c4, type: 3}
   m_Name: Frost
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
-  Id: frost
+  Id: 5_frost
   DisplayName: Frost
   Icon: {fileID: 21300000, guid: 9909785424fc3a44995f12eb12ab8253, type: 3}
   ThemeColor: {r: 1, g: 1, b: 1, a: 1}

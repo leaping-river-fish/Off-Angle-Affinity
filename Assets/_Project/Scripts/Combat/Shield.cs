@@ -41,6 +41,14 @@ namespace OffAngle.Combat
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<float> _current = new SyncVar<float>();
 
+        // Server-owned, replicated bonus added on top of _maxShield by timed
+        // effects (e.g. Solar Ascension's +500 shield) - see
+        // AddBonusMaxShield/RemoveBonusMaxShield. Kept separate from
+        // _maxShield (a static design-time value, already identical on every
+        // peer via the serialized prefab) specifically so the DYNAMIC portion
+        // replicates - _maxShield alone never needed a SyncVar.
+        private readonly SyncVar<float> _bonusMaxShield = new SyncVar<float>();
+
         private float _lastDamageTime = float.NegativeInfinity;
 
         // Set by PlayerLifecycleController.SetRegenLocked, driven by death/respawn
@@ -48,16 +56,17 @@ namespace OffAngle.Combat
         // should not creep up while the player is dead and waiting to respawn.
         private bool _regenLocked;
 
-        public float MaxShield => _maxShield;
+        public float MaxShield => _maxShield + _bonusMaxShield.Value;
         public float CurrentShield => _current.Value;
-        public float Normalized => _maxShield <= 0f ? 0f : Mathf.Clamp01(_current.Value / _maxShield);
-        
-        /// <summary>Fires on every peer when CurrentShield changes. Args: (current, max).</summary>
+        public float Normalized => MaxShield <= 0f ? 0f : Mathf.Clamp01(_current.Value / MaxShield);
+
+        /// <summary>Fires on every peer when CurrentShield or MaxShield changes. Args: (current, max).</summary>
         public event Action<float, float> OnShieldChanged;
 
         private void Awake()
         {
             _current.OnChange += HandleCurrentChanged;
+            _bonusMaxShield.OnChange += HandleBonusMaxShieldChanged;
         }
 
         private void OnDestroy()
@@ -68,6 +77,7 @@ namespace OffAngle.Combat
             try
             {
                 _current.OnChange -= HandleCurrentChanged;
+                _bonusMaxShield.OnChange -= HandleBonusMaxShieldChanged;
             }
             catch (Exception e)
             {
@@ -86,12 +96,47 @@ namespace OffAngle.Combat
         {
             base.OnStartClient();
             // Seed subscribers with the current value; SyncVar.OnChange only fires on future writes.
-            OnShieldChanged?.Invoke(_current.Value, _maxShield);
+            // Reads MaxShield (not the bare _maxShield field) so a peer joining
+            // mid-effect sees any already-active bonus immediately.
+            OnShieldChanged?.Invoke(_current.Value, MaxShield);
         }
 
         private void HandleCurrentChanged(float prev, float next, bool asServer)
         {
-            OnShieldChanged?.Invoke(next, _maxShield);
+            OnShieldChanged?.Invoke(next, MaxShield);
+        }
+
+        private void HandleBonusMaxShieldChanged(float prev, float next, bool asServer)
+        {
+            OnShieldChanged?.Invoke(_current.Value, MaxShield);
+        }
+
+        /// <summary>
+        /// Server-only. Grants a temporary bonus to MaxShield, immediately
+        /// usable (also raises CurrentShield by the same amount, so the bonus
+        /// doesn't sit unusable behind existing damage). Pair with
+        /// RemoveBonusMaxShield when the source timed effect ends - e.g.
+        /// Solar Ascension's +500 shield for its duration.
+        /// </summary>
+        public void AddBonusMaxShield(float amount)
+        {
+            if (!IsServerInitialized || amount <= 0f) return;
+            _bonusMaxShield.Value += amount;
+            _current.Value += amount;
+        }
+
+        /// <summary>
+        /// Server-only. Removes a previously granted bonus, clamping
+        /// CurrentShield down if it now exceeds the reduced MaxShield (e.g.
+        /// the bonus was mostly unused). Pass the exact amount given to the
+        /// matching AddBonusMaxShield call.
+        /// </summary>
+        public void RemoveBonusMaxShield(float amount)
+        {
+            if (!IsServerInitialized || amount <= 0f) return;
+            _bonusMaxShield.Value = Mathf.Max(0f, _bonusMaxShield.Value - amount);
+            if (_current.Value > MaxShield)
+                _current.Value = MaxShield;
         }
 
         /// <summary>
@@ -117,7 +162,7 @@ namespace OffAngle.Combat
         public void ResetShield()
         {
             if (!IsServerInitialized) return;
-            _current.Value = _maxShield;
+            _current.Value = MaxShield;
         }
 
         /// <summary>
@@ -137,9 +182,9 @@ namespace OffAngle.Combat
         {
             if (!IsServerInitialized) return;
             if (_regenLocked) return;
-            if (_current.Value >= _maxShield) return;
+            if (_current.Value >= MaxShield) return;
             if (Time.time < _lastDamageTime + _regenDelay) return;
-            _current.Value = Mathf.Min(_maxShield, _current.Value + _regenRate * Time.deltaTime);
+            _current.Value = Mathf.Min(MaxShield, _current.Value + _regenRate * Time.deltaTime);
         }
     }
 }

@@ -115,6 +115,14 @@ namespace OffAngle.Networking
         // active that the owner currently has drawn.
         private readonly SyncVar<int> _syncedActiveIndex = new SyncVar<int>();
 
+        // Server-authoritative override that force-hides the equipped weapon
+        // model for EVERYONE - the owner's first-person view AND every
+        // peer's third-person view alike (e.g. Solar Ascension hiding the
+        // gun while ascended). Composes with _visibleWhileEquipped/
+        // SetEquippedVisible via AND rather than replacing it, since that
+        // flag is still driven independently by death/respawn.
+        private readonly SyncVar<bool> _weaponHiddenOverride = new SyncVar<bool>();
+
         private readonly Dictionary<WeaponCategory, Gun> _thirdPersonInstances = new();
 
         private WeaponCategory ActiveCategory =>
@@ -130,6 +138,7 @@ namespace OffAngle.Networking
         {
             _syncedDefinitionIds.OnChange += HandleSyncedDefinitionIdsChanged;
             _syncedActiveIndex.OnChange += HandleSyncedActiveIndexChanged;
+            _weaponHiddenOverride.OnChange += HandleWeaponHiddenOverrideChanged;
         }
 
         private void OnDestroy()
@@ -138,6 +147,7 @@ namespace OffAngle.Networking
             {
                 _syncedDefinitionIds.OnChange -= HandleSyncedDefinitionIdsChanged;
                 _syncedActiveIndex.OnChange -= HandleSyncedActiveIndexChanged;
+                _weaponHiddenOverride.OnChange -= HandleWeaponHiddenOverrideChanged;
             }
             catch (Exception e)
             {
@@ -431,7 +441,7 @@ namespace OffAngle.Networking
             {
                 if (pair.Value == null) continue;
                 bool isActive = pair.Key == ActiveCategory;
-                pair.Value.gameObject.SetActive(isActive && _visibleWhileEquipped);
+                pair.Value.gameObject.SetActive(isActive && _visibleWhileEquipped && !_weaponHiddenOverride.Value);
                 if (isActive) activeGun = pair.Value;
             }
 
@@ -459,6 +469,25 @@ namespace OffAngle.Networking
 
             _visibleWhileEquipped = visible;
             RefreshActiveGun();
+        }
+
+        /// <summary>
+        /// Server-only. Force-hides (or restores) the equipped weapon model
+        /// for every peer - the owner's first-person view AND every
+        /// observer's third-person view alike. Unlike SetEquippedVisible
+        /// (owner-only, driven by death/respawn), this replicates. Composes
+        /// with SetEquippedVisible via AND, not a replacement.
+        /// </summary>
+        public void ServerSetWeaponHiddenOverride(bool hidden)
+        {
+            if (!IsServerInitialized) return;
+            _weaponHiddenOverride.Value = hidden;
+        }
+
+        private void HandleWeaponHiddenOverrideChanged(bool prev, bool next, bool asServer)
+        {
+            RebuildThirdPersonFromSync();
+            if (base.IsOwner) RefreshActiveGun();
         }
 
         // ------------------------------------------------------------------
@@ -580,7 +609,7 @@ namespace OffAngle.Networking
                 Gun instance = Instantiate(definition.WeaponPrefab, _thirdPersonWeaponHolder);
                 instance.transform.localPosition = Vector3.zero;
                 instance.transform.localRotation = Quaternion.identity;
-                instance.gameObject.SetActive(i == _syncedActiveIndex.Value);
+                instance.gameObject.SetActive(i == _syncedActiveIndex.Value && !_weaponHiddenOverride.Value);
 
                 _thirdPersonInstances[category] = instance;
                 _playerVisibility?.RegisterDynamicRenderers(instance.GetComponentsInChildren<Renderer>(true));

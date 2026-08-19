@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 47d81548b21a44fc9c61d67c043e43d8, type: 3}
+  m_Name: Ultimate_SolarAscension
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.SolarAscensionUltimateBehavior
+  _duration: 8
+  _riseHeight: 30
+  _riseTime: 0.35
+  _scaleMultiplier: 3
+  _bonusShield: 500
+  _fireballData: {fileID: 11400000, guid: 6afe12e6017d43128618cb4ab1babd24, type: 2}
+  _fireballShotBehavior: {fileID: 11400000, guid: b2c373ac599c40b8a323a05ac20fee4a, type: 2}

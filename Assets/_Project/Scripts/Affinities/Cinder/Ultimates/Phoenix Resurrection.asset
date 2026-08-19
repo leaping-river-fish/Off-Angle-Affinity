@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.UltimateDefinition
   Id: phoenix_resurrection
   DisplayName: Phoenix Resurrection
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 0607cd3254861d340be384eabc8dcc7d, type: 3}
   Description: 
   RequiredCharge: 100
-  Behavior: {fileID: 0}
+  Behavior: {fileID: 11400000, guid: 3699515889f634c4abb4dac3ce49aa0d, type: 2}

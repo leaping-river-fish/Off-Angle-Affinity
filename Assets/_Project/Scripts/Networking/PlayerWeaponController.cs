@@ -129,6 +129,22 @@ namespace OffAngle.Networking
         private float _beamAmmoAccumulator;
         private float _serverBeamStartTime;
 
+        // ------------------------------------------------------------------
+        // Solar Ascension fireball override - set by SolarAscensionEffect
+        // (same GameObject) while that ultimate is active. Bypasses the
+        // equipped Gun entirely: never touches _gun/ammo/the equipped
+        // weapon's shared ShotBehavior asset, so nothing leaks into other
+        // players using the same gun. _ownerAscensionFireActive gates
+        // HandleFireStarted (owner-local); _serverAscensionFireActive gates
+        // CmdFireAscension (server-only) - the same owner/server split every
+        // other gate in this class already uses.
+        // ------------------------------------------------------------------
+        private bool _ownerAscensionFireActive;
+        private bool _serverAscensionFireActive;
+        private GunData _ascensionFireData;
+        private ProjectileShotBehavior _ascensionFireBehavior;
+        private float _ascensionNextAllowedFireTime;
+
         public int  MagazineAmmo => _magazineAmmo.Value;
         public int  ReserveAmmo  => _reserveAmmo.Value;
         public bool IsReloading  => _isReloading.Value;
@@ -410,8 +426,56 @@ namespace OffAngle.Networking
             if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
                 return;
 
+            if (_ownerAscensionFireActive)
+            {
+                GetAimRay(out Vector3 origin, out Vector3 direction);
+                CmdFireAscension(origin, direction);
+                return;
+            }
+
             if (_gun == null || _gun.Data == null) return;
             _gun.StartFire();
+        }
+
+        /// <summary>
+        /// Server-only. Called directly by SolarAscensionEffect (same
+        /// GameObject) to enable/disable the ascension fireball bypass in
+        /// CmdFire's place. Passing active=false clears the cached data/
+        /// behavior too, so a stale reference can never be fired after the
+        /// ultimate ends.
+        /// </summary>
+        public void ServerSetAscensionFireOverride(GunData data, ProjectileShotBehavior behavior, bool active)
+        {
+            if (!IsServerInitialized) return;
+            _serverAscensionFireActive = active;
+            _ascensionFireData = active ? data : null;
+            _ascensionFireBehavior = active ? behavior : null;
+            _ascensionNextAllowedFireTime = 0f;
+        }
+
+        /// <summary>
+        /// Owner-local. Called by SolarAscensionEffect's TargetRpc to switch
+        /// HandleFireStarted from the equipped gun to the ascension fireball
+        /// bypass.
+        /// </summary>
+        public void SetOwnerAscensionFireActive(bool active) => _ownerAscensionFireActive = active;
+
+        [ServerRpc]
+        private void CmdFireAscension(Vector3 origin, Vector3 direction)
+        {
+            if (!_serverAscensionFireActive || _ascensionFireData == null || _ascensionFireBehavior == null) return;
+            if (_lifecycle != null && _lifecycle.IsDead) return;
+            if (direction.sqrMagnitude < 0.0001f) return;
+
+            float now = Time.time;
+            float interval = 1f / Mathf.Max(0.01f, _ascensionFireData.FireRate);
+            if (now < _ascensionNextAllowedFireTime) return;
+            _ascensionNextAllowedFireTime = now + interval;
+
+            direction.Normalize();
+
+            ShotContext ctx = new ShotContext(origin, direction, _ascensionFireData, base.NetworkObject, transform.root, this);
+            _ascensionFireBehavior.Fire(ctx);
         }
 
         private void HandleFireCanceled()

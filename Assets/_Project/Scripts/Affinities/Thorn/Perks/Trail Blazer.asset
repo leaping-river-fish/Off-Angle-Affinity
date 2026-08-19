@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e761bd9f5894a2944acf2062d566726f, type: 3}
   m_Name: Trail Blazer
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
-  Id: trail_blazer
+  Id: grass_run
   DisplayName: Trail Blazer
   Icon: {fileID: 0}
   Description: 

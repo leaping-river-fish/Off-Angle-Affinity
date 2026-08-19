@@ -31,6 +31,7 @@
 // NetworkTransform, Rigidbody, and a Collider in addition to this script.
 // =============================================================================
 
+using FishNet;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using OffAngle.Combat;
@@ -134,6 +135,13 @@ namespace OffAngle.Weapons
                     if (_attackerRoot != null && hit.collider.transform.root == _attackerRoot)
                         continue;
 
+                    // Ground-effect zones (fire patches, ...) are triggers a
+                    // projectile should fly straight through, not detonate
+                    // against - otherwise aiming repeatedly at the same spot
+                    // stacks zones instead of refreshing/overlapping them.
+                    if (hit.collider.GetComponentInParent<GroundEffectZone>() != null)
+                        continue;
+
                     ResolveImpact(hit.collider, hit.point, hit.normal);
                     break;
                 }
@@ -171,6 +179,12 @@ namespace OffAngle.Weapons
             if (_attackerRoot != null && hitCollider.transform.root == _attackerRoot)
                 return;
 
+            // Same reasoning as the sphere-cast loop's check above - this is
+            // the backstop for the OnCollisionEnter/OnTriggerEnter fallback
+            // paths, which have no "try the next hit" loop to fall through to.
+            if (hitCollider.GetComponentInParent<GroundEffectZone>() != null)
+                return;
+
             _impactResolved = true;
             _rigidbody.linearVelocity = Vector3.zero;
             _rigidbody.position = point;
@@ -180,8 +194,65 @@ namespace OffAngle.Weapons
             if (_config.SplashRadius > 0f)
                 ApplySplashDamage(point);
 
+            if (_config.ImpactZonePrefab != null)
+                SpawnImpactZone(point, hitCollider.transform.root);
+
             RpcImpacted(point, normal);
             ServerDespawn();
+        }
+
+        /// <summary>Server-only. Spawns _config.ImpactZonePrefab (e.g. a fireball's burning patch) on the floor beneath the impact point, attributed to this projectile's attacker.</summary>
+        private void SpawnImpactZone(Vector3 point, Transform hitRoot)
+        {
+            GroundEffectZone prefab = _config.ImpactZonePrefab;
+            if (prefab == null || prefab.NetworkObject == null) return;
+
+            Vector3 spawnPoint = ResolveGroundPoint(point, hitRoot);
+
+            NetworkObject instance = Instantiate(prefab.NetworkObject, spawnPoint, Quaternion.identity);
+            InstanceFinder.ServerManager.Spawn(instance);
+
+            GroundEffectZone zone = instance.GetComponent<GroundEffectZone>();
+            zone?.Initialize(_attackerSync.Value);
+        }
+
+        /// <summary>
+        /// Finds the floor beneath an impact point via a downward raycast, so
+        /// a direct hit on a player (or anything else standing above the
+        /// ground) still leaves the ground-effect zone sitting on the floor
+        /// instead of floating at impact height. hitRoot is excluded from the
+        /// probe so it never re-detects the very thing that was just hit as
+        /// "the floor" - e.g. a headshot's probe skips that player's own body/
+        /// head colliders and keeps going down to the real ground. Falls back
+        /// to the raw impact point if no floor is found within range (e.g. an
+        /// impact over a pit).
+        /// </summary>
+        private Vector3 ResolveGroundPoint(Vector3 point, Transform hitRoot)
+        {
+            const float probeUpOffset = 0.2f;
+            const float probeDistance = 50f;
+
+            Vector3 origin = point + Vector3.up * probeUpOffset;
+            LayerMask mask = _weaponData != null ? _weaponData.HitMask : ~0;
+
+            RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, probeDistance, mask, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            foreach (RaycastHit hit in hits)
+            {
+                // Only skip re-detecting the very thing we just hit as "the
+                // floor" when it was a living target (a player/Dummy's own
+                // body) - if the fireball hit static terrain directly (a
+                // ramp, wall, platform, ledge), that IS legitimate ground and
+                // must not be tunnelled through down to whatever sits
+                // further below it.
+                if (hitRoot != null && hit.collider.transform.root == hitRoot && hitRoot.GetComponent<IDamageable>() != null)
+                    continue;
+                if (hit.collider.GetComponentInParent<GroundEffectZone>() != null) continue;
+                return hit.point;
+            }
+
+            return point;
         }
 
         private void ApplySplashDamage(Vector3 point)

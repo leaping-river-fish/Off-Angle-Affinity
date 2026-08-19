@@ -21,6 +21,7 @@
 // =============================================================================
 
 using FishNet.Object;
+using OffAngle.Combat;
 using UnityEngine;
 
 namespace OffAngle.Weapons
@@ -42,6 +43,10 @@ namespace OffAngle.Weapons
         [Tooltip("0 = direct-impact damage only.")]
         [Min(0f)] public float SplashRadius = 0f;
         [Min(0f)] public float SplashDamage = 0f;
+
+        [Header("Ground Effect (optional)")]
+        [Tooltip("If assigned, this zone spawns at the impact point on every hit - e.g. a fireball leaving a burning patch behind. Leave null for a projectile with no lingering ground effect.")]
+        public GroundEffectZone ImpactZonePrefab;
 
         public override void Fire(ShotContext ctx)
         {
