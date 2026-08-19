@@ -87,6 +87,22 @@ namespace OffAngle.Networking
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnServerConnectionState += HandleServerConnectionState;
 
+            // Runs on every peer, not just the host - RequestEnterGame's own
+            // OnLoadEnd subscription below only exists on the server (see its
+            // IsServerStarted gate), so a pure joining client had nothing ever
+            // setting ITS OWN active scene to Game. Since Game loads with
+            // ReplaceOption.None specifically to keep AffinitySelect loaded for
+            // stragglers, a joining client's Unity active scene stayed on
+            // AffinitySelect indefinitely - and because RenderSettings
+            // (skybox/ambient/fog) are sourced only from the active scene, and
+            // AffinitySelect ships with no skybox assigned, that client's camera
+            // rendered a flat background color plus Unity's default fallback
+            // reflection cubemap instead of the sky. Subscribed once, forever,
+            // same as the connection-state handler right above - it is stateless
+            // and has nothing per-match to reset.
+            if (InstanceFinder.SceneManager != null)
+                InstanceFinder.SceneManager.OnLoadEnd += HandleAnyPeerGameSceneLoaded;
+
             // Bootstrap contains only the NetworkManager object, so something has
             // to move the player to an actual screen. This runs exactly once:
             // the object is DontDestroyOnLoad, so Start never fires again on
@@ -103,6 +119,9 @@ namespace OffAngle.Networking
         {
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
+
+            if (InstanceFinder.SceneManager != null)
+                InstanceFinder.SceneManager.OnLoadEnd -= HandleAnyPeerGameSceneLoaded;
 
             if (Instance == this)
                 Instance = null;
@@ -191,6 +210,27 @@ namespace OffAngle.Networking
             _hasUnloadedAffinitySelect = true;
 
             InstanceFinder.SceneManager.UnloadGlobalScenes(new SceneUnloadData(_affinitySelectSceneName));
+        }
+
+        /// <summary>
+        /// Sets Game active locally for WHICHEVER peer just finished loading it -
+        /// host or a joining client alike. Unlike HandleGameSceneLoaded (which
+        /// only ever runs server-side, for spawning), this has no per-peer role
+        /// check and no PlayerSpawner work; it exists purely to fix each peer's
+        /// own Unity active-scene pointer so RenderSettings resolve to Game's
+        /// skybox instead of quietly falling back to the flat background color +
+        /// default reflection cubemap. Safe to fire redundantly alongside
+        /// HandleGameSceneLoaded's own SetActiveScene call on the host.
+        /// </summary>
+        private void HandleAnyPeerGameSceneLoaded(SceneLoadEndEventArgs args)
+        {
+            foreach (UnityEngine.SceneManagement.Scene scene in args.LoadedScenes)
+            {
+                if (scene.name != _gameSceneName) continue;
+
+                UnitySceneManager.SetActiveScene(scene);
+                break;
+            }
         }
 
         private void HandleGameSceneLoaded(SceneLoadEndEventArgs args)
