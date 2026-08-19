@@ -232,6 +232,30 @@ namespace OffAngle.Movement
         public bool InputLocked;
 
         /// <summary>
+        /// The "grounded" debuff (e.g. Hadal Zone) - removes every way to
+        /// move faster/higher than a plain walk, without disabling movement
+        /// input entirely (contrast InputLocked, which is total). Every
+        /// state that reads this treats it the same way IsSprinting/
+        /// IsInAbilityMovement are already read - a condition consulted at
+        /// the point of decision, not a separate state of its own:
+        ///   - GroundedState/AirborneState discard JumpPending (blocks the
+        ///     first jump and any double-jump charges).
+        ///   - AirborneState clamps away positive Y velocity every Tick, so
+        ///     gravity wins over a jump/knockback already in progress when
+        ///     this turned on.
+        ///   - GroundedState/AirborneState treat IsSprinting as false -
+        ///     walking is still allowed, sprint speed is not.
+        ///   - SlideEntry.TryEnterSlideOrCrouch always falls back to
+        ///     Crouching instead of Sliding.
+        ///   - AirborneState.TryEnterWallRun refuses entry.
+        ///   - MovementStateMachine.CanUseMovementAbilities returns false,
+        ///     which blocks PlayerGrapple (and any future ability) the same
+        ///     way IsInAbilityMovement already does - see PlayerGrapple.cs.
+        /// Mutate only through MovementStateMachine.SetGroundedLocked.
+        /// </summary>
+        public bool GroundedLocked;
+
+        /// <summary>
         /// The ability currently driving MovementStateId.AbilityMovement, or
         /// null when no ability is active. Set by
         /// MovementStateMachine.BeginAbilityMovement(); cleared by

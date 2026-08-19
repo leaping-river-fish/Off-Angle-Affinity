@@ -30,7 +30,9 @@ namespace OffAngle.Movement
             // -2 ground-press constant, not actual downward movement.
             float horizontalSpeed = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z).magnitude;
 
-            if (horizontalSpeed >= ctx.Settings.SlideEntrySpeedThreshold)
+            // "Grounded" debuff (e.g. Hadal Zone) always falls through to the
+            // Crouching branch below - see MovementStateContext.GroundedLocked.
+            if (horizontalSpeed >= ctx.Settings.SlideEntrySpeedThreshold && !ctx.GroundedLocked)
             {
                 if (Time.time < ctx.NextSlideAllowedTime)
                     return false;

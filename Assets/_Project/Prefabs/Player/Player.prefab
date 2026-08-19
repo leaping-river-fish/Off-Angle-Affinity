@@ -1498,6 +1498,7 @@ GameObject:
   - component: {fileID: 8544289675581391253}
   - component: {fileID: 5432631508074372109}
   - component: {fileID: 7341918409488905103}
+  - component: {fileID: 9185218170202234343}
   m_Layer: 8
   m_Name: Player
   m_TagString: Untagged
@@ -2038,6 +2039,7 @@ MonoBehaviour:
   _stats: {fileID: 0}
   _damageModifiers: {fileID: 0}
   _combatMemory: {fileID: 0}
+  _statusEffects: {fileID: 0}
 --- !u!114 &8544289675581391253
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2057,6 +2059,8 @@ MonoBehaviour:
   _health: {fileID: 0}
   _lifecycle: {fileID: 0}
   _movement: {fileID: 0}
+  _weapons: {fileID: 0}
+  _durationEffect: {fileID: 0}
   _inputReader: {fileID: 5347879498661852044}
   _chargePerDamageDealt: 1
   _chargePerDamageTaken: 1
@@ -2099,6 +2103,23 @@ MonoBehaviour:
   _durationEffect: {fileID: 0}
   _health: {fileID: 0}
   _thirdPersonBodyRoot: {fileID: 0}
+--- !u!114 &9185218170202234343
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4475511576505607171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c1e045acb5896a4685a2f6fcfdad6bd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Combat.PlayerStatusEffects
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 6608746267949662875}
+  _networkObjectCache: {fileID: 0}
+  _movement: {fileID: 0}
+  _cameraController: {fileID: 0}
 --- !u!1 &4500626514475088747
 GameObject:
   m_ObjectHideFlags: 0

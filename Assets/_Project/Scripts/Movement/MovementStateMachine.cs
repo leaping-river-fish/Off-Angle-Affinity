@@ -213,8 +213,8 @@ namespace OffAngle.Movement
         /// <summary>True if reloading is currently allowed by movement state (false only while sliding with AllowReloadDuringSlide disabled).</summary>
         public bool CanReload => !IsSliding || (_ctx?.Settings.AllowReloadDuringSlide ?? true);
 
-        /// <summary>True if a movement ability may be used right now - false while another ability is already active, or while sliding with AllowAbilitiesDuringSlide disabled.</summary>
-        public bool CanUseMovementAbilities => !IsInAbilityMovement && (!IsSliding || (_ctx?.Settings.AllowAbilitiesDuringSlide ?? true));
+        /// <summary>True if a movement ability may be used right now - false while another ability is already active, while the "grounded" debuff is active (see MovementStateContext.GroundedLocked - this is also what stops PlayerUltimate.TryActivate() while grounded), or while sliding with AllowAbilitiesDuringSlide disabled.</summary>
+        public bool CanUseMovementAbilities => !IsInAbilityMovement && !(_ctx?.GroundedLocked ?? false) && (!IsSliding || (_ctx?.Settings.AllowAbilitiesDuringSlide ?? true));
 
         /// <summary>Query before starting any new movement action (dash, grapple, ...). Equivalent to CanUseMovementAbilities; kept as a separate method to match the "querying whether another movement action can currently begin" hook explicitly.</summary>
         public bool CanStartMovementAction() => CanUseMovementAbilities;
@@ -375,6 +375,12 @@ namespace OffAngle.Movement
         public void SetInputLocked(bool locked)
         {
             if (_ctx != null) _ctx.InputLocked = locked;
+        }
+
+        /// <summary>Applies (or clears) the full "grounded" debuff - see MovementStateContext.GroundedLocked for exactly what this affects.</summary>
+        public void SetGroundedLocked(bool locked)
+        {
+            if (_ctx != null) _ctx.GroundedLocked = locked;
         }
 
         /// <summary>

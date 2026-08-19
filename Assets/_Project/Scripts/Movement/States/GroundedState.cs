@@ -99,6 +99,12 @@ namespace OffAngle.Movement.States
                 ctx.CrouchSlidePending = false;
             }
 
+            // "Grounded" debuff (e.g. Hadal Zone) - removes jump here; sprint
+            // (step 4) and slide entry (SlideEntry.cs) are gated separately.
+            // See MovementStateContext.GroundedLocked.
+            if (ctx.GroundedLocked)
+                ctx.JumpPending = false;
+
             // ── 1. CrouchSlide check ───────────────────────────────────────
             // Consume before jump so simultaneous press of both favors jump.
             if (ctx.CrouchSlidePending)
@@ -132,7 +138,9 @@ namespace OffAngle.Movement.States
             }
 
             // ── 4. Compute horizontal move vector ─────────────────────────
-            float speed = (ctx.Input.IsSprinting
+            // "Grounded" debuff caps this at walk speed - see MovementStateContext.GroundedLocked.
+            bool sprinting = ctx.Input.IsSprinting && !ctx.GroundedLocked;
+            float speed = (sprinting
                 ? ctx.Settings.SprintSpeed
                 : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
 

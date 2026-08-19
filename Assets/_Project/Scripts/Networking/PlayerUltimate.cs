@@ -55,6 +55,9 @@ namespace OffAngle.Networking
         [SerializeField] private PlayerLifecycleController _lifecycle;
         [SerializeField] private MovementStateMachine _movement;
 
+        [Tooltip("Optional. Leave null to auto-resolve on this GameObject. Source of the trusted aim ray sent alongside activation - see TryActivate/GetTrustedAimRay.")]
+        [SerializeField] private PlayerWeaponController _weapons;
+
         [Tooltip("Optional. When assigned, charge gain (passive trickle and damage-based) pauses for as long as this reports IsActive - e.g. while Solar Ascension's active window is running, so an ultimate cannot fully recharge inside its own duration. Left null, charge is never paused this way.")]
         [SerializeField] private UltimateDurationEffect _durationEffect;
 
@@ -130,6 +133,7 @@ namespace OffAngle.Networking
             if (_health == null) _health = GetComponent<Health>();
             if (_lifecycle == null) _lifecycle = GetComponent<PlayerLifecycleController>();
             if (_movement == null) _movement = GetComponent<MovementStateMachine>();
+            if (_weapons == null) _weapons = GetComponent<PlayerWeaponController>();
             if (_durationEffect == null) _durationEffect = GetComponent<UltimateDurationEffect>();
 
             _charge.OnChange += HandleChargeChanged;
@@ -295,12 +299,16 @@ namespace OffAngle.Networking
             // player's movement.
             if (_movement != null && !_movement.CanStartMovementAction()) { Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate blocked: CanStartMovementAction() false"); return; } // TEMP DEBUG
 
+            Vector3 aimOrigin = transform.position;
+            Vector3 aimDirection = transform.forward;
+            if (_weapons != null) _weapons.GetTrustedAimRay(out aimOrigin, out aimDirection);
+
             Debug.Log($"[{nameof(PlayerUltimate)}] TryActivate passed all gates, sending CmdActivate"); // TEMP DEBUG
-            CmdActivate();
+            CmdActivate(aimOrigin, aimDirection);
         }
 
         [ServerRpc]
-        private void CmdActivate()
+        private void CmdActivate(Vector3 aimOrigin, Vector3 aimDirection)
         {
             if (!IsServerInitialized) { Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate blocked: server not initialized"); return; } // TEMP DEBUG
 
@@ -315,7 +323,7 @@ namespace OffAngle.Networking
 
             Debug.Log($"[{nameof(PlayerUltimate)}] CmdActivate activating '{ultimate.DisplayName}'"); // TEMP DEBUG
 
-            ultimate.Behavior.ServerActivate(context);
+            ultimate.Behavior.ServerActivate(context, aimOrigin, aimDirection);
 
             _charge.Value = 0f;
             RpcActivated();
