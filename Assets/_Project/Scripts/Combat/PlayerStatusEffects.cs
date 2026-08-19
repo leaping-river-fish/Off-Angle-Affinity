@@ -59,7 +59,15 @@ namespace OffAngle.Combat
         private void Awake()
         {
             if (_movement == null) _movement = GetComponent<MovementStateMachine>();
-            if (_cameraController == null) _cameraController = GetComponentInChildren<PlayerCameraController>();
+
+            // includeInactive: true is required here - the camera subtree
+            // starts SetActive(false) in the prefab and is only activated
+            // later, for the local owner, by NetworkPlayerController.
+            // ActivateOwnerComponents() (during OnStartClient, which runs
+            // AFTER this Awake). Without it, this always resolves to null
+            // since PlayerStatusEffects lives on the always-active root and
+            // therefore runs its own Awake before the camera ever turns on.
+            if (_cameraController == null) _cameraController = GetComponentInChildren<PlayerCameraController>(true);
         }
 
         public override void OnStopServer()
