@@ -7,10 +7,11 @@
 //   client) is only queued -- nothing spawns yet, so players stay lobby-
 //   locked. When GameFlowController's Game scene load completes, SpawnAll()
 //   fires once: every queued connection gets a shuffled, non-repeating spawn
-//   point (first-mode deathmatch wants guaranteed-unique starts). Connections
-//   that arrive after the match has started (join-in-progress) spawn
-//   immediately at a random point, same as the original always-spawn-on-
-//   connect behavior.
+//   point (first-mode deathmatch wants guaranteed-unique starts). There is no
+//   join-in-progress: a connection that arrives once the match has already
+//   started is kicked immediately (see OnRemoteConnectionState) rather than
+//   spawned with a default build or given its own Affinity picker mid-match -
+//   every player who actually plays picked their build before the match began.
 //
 //   Despawn-on-disconnect is handled automatically by FishNet because the
 //   prefab has a NetworkObject and the spawn passes a connection. A
@@ -49,7 +50,9 @@
 using System.Collections.Generic;
 using FishNet;
 using FishNet.Connection;
+using FishNet.Managing.Logging;
 using FishNet.Managing.Scened;
+using FishNet.Managing.Server;
 using FishNet.Object;
 using FishNet.Transporting;
 using UnityEngine;
@@ -194,8 +197,8 @@ namespace OffAngle.Networking
         // Everything this spawner tracks is per-session, but the spawner itself
         // is DontDestroyOnLoad. Without this reset the next match inherits the
         // last one's state: _hasGameStarted in particular would make every
-        // joining player spawn immediately as join-in-progress instead of being
-        // queued for SpawnAll().
+        // joining player get rejected as if the (previous) match had already
+        // started, instead of being queued for the new match's SpawnAll().
         private void OnServerConnectionState(ServerConnectionStateArgs args)
         {
             if (args.ConnectionState != LocalConnectionState.Stopped)
@@ -218,15 +221,18 @@ namespace OffAngle.Networking
 
             if (args.ConnectionState == RemoteConnectionState.Started)
             {
-                // Join-in-progress is deliberately NOT gated on Affinity readiness.
-                // A late joiner missed the selection phase entirely and the
-                // coordinator that would have auto-filled them no longer exists, so
-                // gating here would strand them unspawnable forever. They spawn
-                // immediately and PlayerAffinity gives them the default build (see
-                // its PublishLoadoutFromService, which sanitizes a null selection).
+                // No join-in-progress: everyone who actually plays picked an
+                // Affinity before the match began, so a connection arriving
+                // after Game has already loaded is rejected outright rather
+                // than spawned with a default build or made to pick mid-match.
                 if (_hasGameStarted)
-                    SpawnOnceSceneLoaded(conn);
-                else if (!_pendingConnections.Contains(conn))
+                {
+                    conn.Kick(KickReason.Unset, LoggingType.Common,
+                        $"[{nameof(PlayerSpawner)}] Rejected connection {conn.ClientId} - the match has already started.");
+                    return;
+                }
+
+                if (!_pendingConnections.Contains(conn))
                     _pendingConnections.Add(conn);
             }
             else if (args.ConnectionState == RemoteConnectionState.Stopped)
@@ -272,7 +278,6 @@ namespace OffAngle.Networking
                 return;
             }
 
-            Debug.Log($"[{nameof(PlayerSpawner)}] Connection {conn.ClientId} is ready to spawn but hasn't finished loading the Game scene locally yet - waiting.");
             InstanceFinder.SceneManager.OnClientPresenceChangeEnd += HandlePresenceChangeEnd;
 
             void HandlePresenceChangeEnd(ClientPresenceChangeEventArgs args)
@@ -284,10 +289,7 @@ namespace OffAngle.Networking
                 // Connection may have disconnected while its scene load was
                 // still pending - do not spawn a player for a dead connection.
                 if (conn.IsActive)
-                {
-                    Debug.Log($"[{nameof(PlayerSpawner)}] Connection {conn.ClientId} finished loading the Game scene - spawning now.");
                     SpawnFor(conn, explicitPoint);
-                }
             }
         }
 
@@ -316,7 +318,6 @@ namespace OffAngle.Networking
             _pendingConnections.Clear();
             _pendingConnections.AddRange(stillWaiting);
 
-            Debug.Log($"[{nameof(PlayerSpawner)}] SpawnAll: {connections.Count} ready connection(s) spawning now, {stillWaiting.Count} still waiting on an Affinity selection.");
             if (stillWaiting.Count > 0)
                 Debug.Log($"[{nameof(PlayerSpawner)}] {stillWaiting.Count} player(s) have not submitted an Affinity selection and will spawn when they do.");
 

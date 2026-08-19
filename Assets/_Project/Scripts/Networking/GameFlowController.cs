@@ -256,7 +256,6 @@ namespace OffAngle.Networking
                 Debug.LogError($"[{nameof(GameFlowController)}] Game scene '{_gameSceneName}' was not valid right after its own OnLoadEnd fired - active scene was left unchanged.", this);
 
             PlayerSpawner.Instance?.ResolveSpawnPoints();
-            Debug.Log($"[{nameof(GameFlowController)}] Game scene loaded (active scene now '{UnitySceneManager.GetActiveScene().name}'). Spawning ready players.");
             PlayerSpawner.Instance?.SpawnAll();
         }
     }
