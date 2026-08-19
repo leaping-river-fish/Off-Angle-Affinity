@@ -72,5 +72,8 @@ namespace OffAngle.Affinities
         public MovementStateMachine Movement;
         public PlayerGrapple Grapple;
         public PlayerWeaponController Weapons;
+
+        /// <summary>Seam for debuffs that must reach owner-only systems (movement, camera) on the occupant's own client - see PlayerStatusEffects. May be null (e.g. the Dummy).</summary>
+        public PlayerStatusEffects StatusEffects;
     }
 }

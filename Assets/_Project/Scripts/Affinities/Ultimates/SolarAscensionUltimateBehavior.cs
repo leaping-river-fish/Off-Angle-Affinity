@@ -48,7 +48,7 @@ namespace OffAngle.Affinities
         [Tooltip("The Projectile-spawning behavior fired while ascended. Assign the fireball's ProjectileShotBehavior asset (with SplashRadius/SplashDamage and an impact ground-effect zone configured).")]
         [SerializeField] private ProjectileShotBehavior _fireballShotBehavior;
 
-        public override void ServerActivate(AffinityRuntimeContext ctx)
+        public override void ServerActivate(AffinityRuntimeContext ctx, Vector3 aimOrigin, Vector3 aimDirection)
         {
             SolarAscensionEffect effect = ctx?.PlayerRoot != null ? ctx.PlayerRoot.GetComponent<SolarAscensionEffect>() : null;
             if (effect == null)

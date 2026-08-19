@@ -523,6 +523,15 @@ namespace OffAngle.Networking
             origin += direction * _muzzleClearanceDistance;
         }
 
+        /// <summary>
+        /// Owner-only. Public wrapper around GetAimRay for callers outside
+        /// this class that need the same trusted, muzzle-clearance-adjusted
+        /// aim ray weapon fire uses - e.g. PlayerUltimate, so an
+        /// aim-dependent ultimate (Hadal Zone) can send it alongside
+        /// CmdActivate the same way every shot already does.
+        /// </summary>
+        public void GetTrustedAimRay(out Vector3 origin, out Vector3 direction) => GetAimRay(out origin, out direction);
+
         // ------------------------------------------------------------------
         // Owner-side path — Continuous (beam) shot behaviors
         // ------------------------------------------------------------------

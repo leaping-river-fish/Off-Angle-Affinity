@@ -23,7 +23,7 @@ namespace OffAngle.Affinities
         [Tooltip("Log to the Console on activation. Useful while the real behaviour does not exist yet.")]
         [SerializeField] private bool _logOnActivate = true;
 
-        public override void ServerActivate(AffinityRuntimeContext ctx)
+        public override void ServerActivate(AffinityRuntimeContext ctx, Vector3 aimOrigin, Vector3 aimDirection)
         {
             if (!_logOnActivate) return;
 

@@ -72,6 +72,7 @@ namespace OffAngle.Networking
         [SerializeField] private PlayerStats _stats;
         [SerializeField] private PlayerDamageModifiers _damageModifiers;
         [SerializeField] private CombatMemory _combatMemory;
+        [SerializeField] private PlayerStatusEffects _statusEffects;
 
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<string> _syncedLoadout = new SyncVar<string>();
@@ -119,6 +120,7 @@ namespace OffAngle.Networking
             if (_stats == null) _stats = GetComponent<PlayerStats>();
             if (_damageModifiers == null) _damageModifiers = GetComponent<PlayerDamageModifiers>();
             if (_combatMemory == null) _combatMemory = GetComponent<CombatMemory>();
+            if (_statusEffects == null) _statusEffects = GetComponent<PlayerStatusEffects>();
 
             // Resolved once so no effect ever calls GetComponent.
             _context = new AffinityRuntimeContext
@@ -133,6 +135,7 @@ namespace OffAngle.Networking
                 Stats = _stats,
                 DamageModifiers = _damageModifiers,
                 CombatMemory = _combatMemory,
+                StatusEffects = _statusEffects,
             };
 
             _syncedLoadout.OnChange += HandleSyncedLoadoutChanged;

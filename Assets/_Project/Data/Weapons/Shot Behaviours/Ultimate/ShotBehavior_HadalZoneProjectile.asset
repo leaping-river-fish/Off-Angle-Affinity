@@ -10,12 +10,12 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 66bc70f16fd08a44e8e074bacff7767b, type: 3}
-  m_Name: ShotBehavior_SolarAscensionFireball
+  m_Name: ShotBehavior_HadalZoneProjectile
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.ProjectileShotBehavior
-  ProjectilePrefab: {fileID: 2120456719034822156, guid: 6b0b7511d6484e968f3767c690280be3, type: 3}
-  Speed: 100
-  UseGravity: 0
+  ProjectilePrefab: {fileID: 2120456719034822156, guid: 37ba68051ad71bd499064e1b75b7e0cb, type: 3}
+  Speed: 80
+  UseGravity: 1
   Lifetime: 5
-  SplashRadius: 10
-  SplashDamage: 100
-  ImpactZonePrefab: {fileID: 1000000000000004, guid: 5ff9f11d54354d1d81f0c5e0e82487c2, type: 3}
+  SplashRadius: 0
+  SplashDamage: 0
+  ImpactZonePrefab: {fileID: 1000000000000004, guid: 13bee482aa8c9b4479994b5fa175ede9, type: 3}

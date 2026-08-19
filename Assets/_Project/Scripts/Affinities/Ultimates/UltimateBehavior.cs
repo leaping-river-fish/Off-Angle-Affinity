@@ -35,6 +35,16 @@ namespace OffAngle.Affinities
         /// Server-only. Called once per activation, after all gating has passed and
         /// immediately before the player's charge is reset to zero.
         /// </summary>
-        public abstract void ServerActivate(AffinityRuntimeContext ctx);
+        /// <param name="aimOrigin">
+        /// The owner's trusted camera-based aim ray at the moment of
+        /// activation - same PlayerWeaponController.GetTrustedAimRay every
+        /// shot uses (muzzle-clearance already applied). Only meaningful for
+        /// an ultimate that throws/fires something (e.g. Hadal Zone); a
+        /// self-targeted ultimate (e.g. Solar Ascension) ignores both
+        /// parameters, same as ShotContext.HeldDuration is ignored by
+        /// behaviors with no concept of a hold.
+        /// </param>
+        /// <param name="aimDirection">Trusted, normalized aim direction paired with aimOrigin.</param>
+        public abstract void ServerActivate(AffinityRuntimeContext ctx, Vector3 aimOrigin, Vector3 aimDirection);
     }
 }

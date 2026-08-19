@@ -167,6 +167,16 @@ namespace OffAngle.Movement.Grapple
             if (_attackerRoot != null && other.transform.root == _attackerRoot)
                 return; // Never self-attach to the shooter's own colliders.
 
+            // Ground-effect zones (fire patches, Hadal Zone, ...) are triggers
+            // for occupant detection only, not real geometry - same reasoning
+            // Projectile.cs already excludes them for. Without this, their
+            // trigger collider reads as valid surface here, so a hook fired
+            // from inside (or through) one attaches to thin air at the
+            // zone's collider boundary instead of flying on to real
+            // geometry - the exact "grapple hits an invisible wall" symptom.
+            if (other.GetComponentInParent<GroundEffectZone>() != null)
+                return;
+
             if (_ignoreDamageableEntities && other.GetComponentInParent<IDamageable>() != null)
                 return; // Entity - pass through untouched (see class header).
 

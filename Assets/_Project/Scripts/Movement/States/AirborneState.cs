@@ -103,6 +103,14 @@ namespace OffAngle.Movement.States
             if (ctx.InputLocked)
                 ctx.JumpPending = false;
 
+            // "Grounded" debuff (e.g. Hadal Zone) - blocks the double-jump
+            // charge below; the upward-velocity clamp after gravity (step 2)
+            // is what actually prevents an already-airborne player (e.g. a
+            // jump started the instant before the debuff applied) from
+            // carrying that momentum upward. See MovementStateContext.GroundedLocked.
+            if (ctx.GroundedLocked)
+                ctx.JumpPending = false;
+
             // ── 1. Double jump ─────────────────────────────────────────────
             // Checked first so the impulse is applied before gravity this frame,
             // which gives the jump a crisp, immediate feel.
@@ -128,6 +136,13 @@ namespace OffAngle.Movement.States
 
             // ── 2. Gravity ─────────────────────────────────────────────────
             ctx.Velocity.y -= ctx.Settings.Gravity * ctx.GravityMultiplier * deltaTime;
+
+            // "Grounded" debuff: strip any remaining upward velocity every
+            // Tick so gravity always wins - covers a jump/knockback that was
+            // already in progress when the debuff applied, not just new
+            // jump attempts (handled above).
+            if (ctx.GroundedLocked && ctx.Velocity.y > 0f)
+                ctx.Velocity.y = 0f;
 
             // ── 3. Air control (horizontal) ────────────────────────────────
             ApplyAirControl(ctx, deltaTime);
@@ -219,6 +234,10 @@ namespace OffAngle.Movement.States
             if (ctx.InputLocked)
                 return false;
 
+            // "Grounded" debuff (e.g. Hadal Zone) - see MovementStateContext.GroundedLocked.
+            if (ctx.GroundedLocked)
+                return false;
+
             // Universal post-exit lock (tutorial exitingWall) - blocks ALL
             // walls briefly so a wall jump cannot instantly re-stick.
             if (Time.time < ctx.WallRunExitLockEndTime)
@@ -308,7 +327,9 @@ namespace OffAngle.Movement.States
             if (inputMag * inputMag < 0.001f)
                 return;
 
-            float speed = (ctx.Input.IsSprinting
+            // "Grounded" debuff caps this at walk speed - see MovementStateContext.GroundedLocked.
+            bool sprinting = ctx.Input.IsSprinting && !ctx.GroundedLocked;
+            float speed = (sprinting
                 ? ctx.Settings.SprintSpeed
                 : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
 
