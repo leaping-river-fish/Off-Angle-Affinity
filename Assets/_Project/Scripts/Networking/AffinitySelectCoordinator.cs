@@ -96,17 +96,30 @@ namespace OffAngle.Networking
 
         private void Awake()
         {
+            // Guards only the static pointer, not the whole component - see
+            // LobbyPlayerList.Awake for why disabling a FishNet-driven
+            // NetworkBehaviour here isn't the right tool. This protects
+            // against a second instance (e.g. AffinitySelect briefly loaded
+            // twice) silently clobbering Instance out from under whichever
+            // peer/UI is still reading the first one.
+            if (Instance != null && Instance != this)
+            {
+                Debug.LogWarning($"[{nameof(AffinitySelectCoordinator)}] Duplicate instance detected; keeping the first.", this);
+                return;
+            }
+
             Instance = this;
             InstanceReady?.Invoke();
         }
 
         private void OnDestroy()
         {
-            // Fires on every peer, server or client, the instant the AffinitySelect
-            // scene actually unloads locally - the single clearest signal for
-            // telling apart "the scene never unloaded for this peer" from "the
-            // scene unloaded but its UI didn't disappear with it".
-            Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Destroyed on this peer (AffinitySelect scene unloading here now). IsServer={IsServerInitialized}, IsClient={IsClientInitialized}.");
+            // Fires on every peer the instant AffinitySelect actually unloads
+            // here - the frame this logs relative to NetworkPlayerController's
+            // "ActivateOwnerComponents ran" log is the whole question: does the
+            // player's own camera activate before or after this scene (and its
+            // camera) disappears?
+            Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Destroyed on this peer (AffinitySelect unloading here now). IsServer={IsServerInitialized}, IsClient={IsClientInitialized}.");
 
             if (Instance == this)
                 Instance = null;
@@ -145,6 +158,7 @@ namespace OffAngle.Networking
 
                 if (remaining <= 0)
                 {
+                    Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Countdown hit 0 with readyCount={AffinitySelectionService.Instance?.ReadyCount.ToString() ?? "n/a"} - starting match without waiting for stragglers.");
                     _countdownRunning = false;
                     BeginMatch();
                 }
@@ -152,6 +166,7 @@ namespace OffAngle.Networking
                          AffinitySelectionService.Instance != null &&
                          AffinitySelectionService.Instance.AreAllConnectedReady())
                 {
+                    Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Everyone ready early - starting match.");
                     _countdownRunning = false;
                     BeginMatch();
                 }
@@ -166,7 +181,7 @@ namespace OffAngle.Networking
                 AffinitySelectionService.Instance.AreAllConnectedReady())
             {
                 _affinitySelectFinalized = true;
-                Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Every connected player is ready (readyCount={AffinitySelectionService.Instance.ReadyCount}) - unloading AffinitySelect.");
+                Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Everyone ready (readyCount={AffinitySelectionService.Instance.ReadyCount}) - unloading AffinitySelect now.");
                 GameFlowController.Instance?.RequestUnloadAffinitySelect();
             }
         }
@@ -235,7 +250,6 @@ namespace OffAngle.Networking
                 return;
             }
 
-            Debug.Log($"[{nameof(AffinitySelectCoordinator)}] BeginMatch - readyCount={AffinitySelectionService.Instance?.ReadyCount.ToString() ?? "n/a"}, connected clients={FishNet.InstanceFinder.ServerManager?.Clients.Count.ToString() ?? "n/a"}.");
             GameFlowController.Instance.RequestEnterGame();
         }
     }

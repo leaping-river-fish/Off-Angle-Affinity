@@ -87,6 +87,9 @@ namespace OffAngle.Networking
         [Tooltip("Status message shown after this peer deliberately left the session via LeaveSession().")]
         [SerializeField] private string _leftSessionMessage = "Left the session";
 
+        [Tooltip("Status message shown when the server rejects this client for arriving after the match already started (see MatchAlreadyStartedBroadcast).")]
+        [SerializeField] private string _matchAlreadyStartedMessage = "That match has already started";
+
         [Header("Scene")]
         [Tooltip("Scene loaded once a session ends -- whether this peer left, or the host shut the server down. Must be in Build Settings.")]
         [SerializeField] private string _mainMenuSceneName = "MainMenu";
@@ -165,6 +168,12 @@ namespace OffAngle.Networking
         // player loop is ending, and LoadScene during teardown is never valid.
         private bool _isQuitting;
 
+        // Set by HandleMatchAlreadyStarted, which always arrives (if at all)
+        // shortly before the server's own Kick disconnects this client - see
+        // MatchAlreadyStartedBroadcast for why this needs its own signal
+        // rather than relying on Kick's reason, which never reaches the client.
+        private bool _rejectedMatchAlreadyStarted;
+
         // ------------------------------------------------------------------
         // Unity lifecycle
         // ------------------------------------------------------------------
@@ -189,6 +198,11 @@ namespace OffAngle.Networking
             //   - Client goes Starting → Stopped         → "Connection failed".
             //   - Client goes Started  → Stopping/Stopped → "Disconnected".
             InstanceFinder.ClientManager.OnClientConnectionState += HandleClientConnectionState;
+
+            // Arrives (if at all) just before the server disconnects this
+            // client for joining after the match already started - see
+            // MatchAlreadyStartedBroadcast / PlayerSpawner.OnRemoteConnectionState.
+            InstanceFinder.ClientManager.RegisterBroadcast<MatchAlreadyStartedBroadcast>(HandleMatchAlreadyStarted);
 
             // The server side is needed too: Tugboat's StartConnection returns
             // true even when the socket fails to bind (ServerSocket.cs:265), so
@@ -221,7 +235,10 @@ namespace OffAngle.Networking
                 return;
 
             if (InstanceFinder.ClientManager != null)
+            {
                 InstanceFinder.ClientManager.OnClientConnectionState -= HandleClientConnectionState;
+                InstanceFinder.ClientManager.UnregisterBroadcast<MatchAlreadyStartedBroadcast>(HandleMatchAlreadyStarted);
+            }
 
             if (InstanceFinder.ServerManager != null)
                 InstanceFinder.ServerManager.OnServerConnectionState -= HandleServerConnectionState;
@@ -521,11 +538,14 @@ namespace OffAngle.Networking
                     // attempt (Starting → Stopping → Stopped), so "previous"
                     // is never a reliable signal here -- _hasReachedStarted is.
                     bool hadSession = _hasReachedStarted;
-                    string reason = _returningToMenu ? _leftSessionMessage
+                    bool wasRejected = _rejectedMatchAlreadyStarted;
+                    string reason = wasRejected      ? _matchAlreadyStartedMessage
+                                  : _returningToMenu ? _leftSessionMessage
                                   : hadSession       ? _disconnectedMessage
                                                      : _connectionFailedMessage;
 
                     _hasReachedStarted = false;
+                    _rejectedMatchAlreadyStarted = false;
                     CurrentSessionCode = "";
                     CurrentHostAddress = "";
                     RaiseStatus(reason);
@@ -533,18 +553,31 @@ namespace OffAngle.Networking
 
                     // A session that actually existed always ends back at the
                     // menu, whether we left or the host ended it -- this is what
-                    // stops clients being stranded in a dead Game scene.
+                    // stops clients being stranded in a dead Game scene. A
+                    // rejection is included even though it can land before
+                    // _hasReachedStarted ever flips true (the reject happens
+                    // almost immediately after connecting) - either way this
+                    // client must not be left sitting in whatever scene it
+                    // already loaded on the way in.
                     //
                     // A FAILED attempt must not reload: it never left the menu,
                     // and reloading would wipe the "Connection failed" message
                     // the player needs to see.
-                    if (hadSession && !_isQuitting)
+                    if ((hadSession || wasRejected) && !_isQuitting)
                         LoadMainMenu();
 
                     _returningToMenu = false;
                     break;
             }
         }
+
+        // Sent by PlayerSpawner just before it kicks this connection for
+        // arriving after the match already started. Only sets a flag - the
+        // Kick's own Stopped callback (HandleClientConnectionState) is what
+        // actually raises the status and reason, same as every other
+        // disconnect path, so there is exactly one place that does so.
+        private void HandleMatchAlreadyStarted(MatchAlreadyStartedBroadcast msg, Channel channel)
+            => _rejectedMatchAlreadyStarted = true;
 
         // ------------------------------------------------------------------
         // Helpers

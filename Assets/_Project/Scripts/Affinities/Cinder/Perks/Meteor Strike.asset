@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: meteor_strike
   DisplayName: Meteor Strike
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 6418a75c9b3abe64fb2590b6318b1528, type: 3}
   Description: 
   Effects: []

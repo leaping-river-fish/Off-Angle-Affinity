@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: wildfire
   DisplayName: Wildfire
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 059da8033aa9d3b40bfa58b28a2779af, type: 3}
   Description: 
   Effects: []

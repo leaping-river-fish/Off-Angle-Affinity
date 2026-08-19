@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: phoenix_grace
   DisplayName: Phoenix Grace
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 83c5d2ad67a05b542bea6f96efd26665, type: 3}
   Description: 
   Effects: []

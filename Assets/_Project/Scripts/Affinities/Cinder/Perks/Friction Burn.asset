@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: friction_burn
   DisplayName: Friction Burn
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 39d5d061cf556694ebb63d5bfc64b44d, type: 3}
   Description: 
   Effects: []

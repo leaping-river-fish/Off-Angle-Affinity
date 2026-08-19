@@ -195,7 +195,30 @@ namespace OffAngle.Networking
             // finish picking. It is a global scene either way, so it is already
             // loaded for every connection, including ready ones - RequestUnloadAffinitySelect
             // tears it down once nobody needs it anymore.
-            InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_gameSceneName) { ReplaceScenes = ReplaceOption.None });
+            SceneLoadData data = new SceneLoadData(_gameSceneName) { ReplaceScenes = ReplaceOption.None };
+
+            // Explicitly telling FishNet the preferred active scene (for BOTH
+            // client and server) is what actually fixes the active scene here,
+            // not HandleGameSceneLoaded's own SetActiveScene call below - that
+            // call only reacts to scenes FishNet reports as freshly LOADED this
+            // pass, but on a host, the local client's own pass of this SAME
+            // Game load reports it as SKIPPED (already loaded server-side a
+            // moment earlier in the same process), so nothing ever sees it in
+            // that pass's LoadedScenes to react to. FishNet's own internal
+            // active-scene resolution still runs unconditionally for that
+            // skipped pass regardless, and defaults back to AffinitySelect
+            // (since Game loaded with ReplaceOption.None) - silently undoing
+            // HandleGameSceneLoaded's fix sometime after it ran, with nothing
+            // in the Console to explain it. A player who finished their pick
+            // late - after this had already happened - spawned into whatever
+            // scene was active at that moment (AffinitySelect), got swept away
+            // the instant that scene unloaded moments later, and never got a
+            // working camera. Setting this up front means FishNet's own
+            // resolution gets it right on every pass, load or skip, server or
+            // client - see SceneManager.GetUserPreferredActiveScene.
+            data.PreferredActiveScene = new PreferredScene(new SceneLookupData(_gameSceneName));
+
+            InstanceFinder.SceneManager.LoadGlobalScenes(data);
         }
 
         /// <summary>
@@ -256,7 +279,6 @@ namespace OffAngle.Networking
                 Debug.LogError($"[{nameof(GameFlowController)}] Game scene '{_gameSceneName}' was not valid right after its own OnLoadEnd fired - active scene was left unchanged.", this);
 
             PlayerSpawner.Instance?.ResolveSpawnPoints();
-            Debug.Log($"[{nameof(GameFlowController)}] Game scene loaded (active scene now '{UnitySceneManager.GetActiveScene().name}'). Spawning ready players.");
             PlayerSpawner.Instance?.SpawnAll();
         }
     }
