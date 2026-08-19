@@ -161,21 +161,6 @@ namespace OffAngle.Networking
             return connected > 0;
         }
 
-        /// <summary>Every connected client that has not submitted. Used to auto-fill defaults when the countdown expires.</summary>
-        public void CollectUnready(List<NetworkConnection> into)
-        {
-            into.Clear();
-            if (InstanceFinder.ServerManager == null) return;
-
-            foreach (NetworkConnection conn in InstanceFinder.ServerManager.Clients.Values)
-            {
-                if (conn == null || !conn.IsActive) continue;
-                if (_ready.Contains(conn.ClientId)) continue;
-
-                into.Add(conn);
-            }
-        }
-
         // ------------------------------------------------------------------
         // Session bookkeeping
         // ------------------------------------------------------------------

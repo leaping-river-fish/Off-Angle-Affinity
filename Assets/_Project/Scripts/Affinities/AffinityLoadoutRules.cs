@@ -86,9 +86,9 @@ namespace OffAngle.Affinities
         }
 
         /// <summary>
-        /// True if every required slot is filled. The selection UI uses this to
-        /// enable its Submit button. A null Secondary counts as COMPLETE - taking
-        /// a secondary affinity is optional; half-taking one is not.
+        /// True if every required slot is filled, including a Secondary affinity
+        /// and its available perk rows. The selection UI uses this to enable its
+        /// Submit button.
         /// </summary>
         public static bool IsComplete(AffinityLoadout loadout)
         {
@@ -102,7 +102,7 @@ namespace OffAngle.Affinities
                 if (loadout.PrimaryPerks[row] == null) return false;
             }
 
-            if (loadout.Secondary == null) return true;
+            if (loadout.Secondary == null) return false;
 
             for (int row = 0; row < PerkRowCount; row++)
             {
@@ -188,9 +188,13 @@ namespace OffAngle.Affinities
 
             result.Secondary = secondary;
 
-            // A secondary is optional, so an absent one stays absent rather than
-            // being defaulted. Once chosen though, its available rows are filled -
-            // a half-taken secondary is not a build anyone would have wanted.
+            // The selection UI now requires a Secondary before Confirm unlocks
+            // (see IsComplete), so a legitimate submission always has one. An
+            // absent one here only means a hand-crafted/stale submission - stay
+            // forgiving and leave it absent rather than guessing a pick for the
+            // player, same policy as leaving Secondary null used to be. Once
+            // present, its available rows are filled - a half-taken secondary is
+            // not a build anyone would have wanted.
             if (secondary != null)
                 SanitizePerkRows(secondary, requested?.SecondaryPerks, result.SecondaryPerks, asSecondary: true, ref violations);
 

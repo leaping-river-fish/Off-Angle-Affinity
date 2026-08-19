@@ -38,7 +38,7 @@ namespace OffAngle.Affinities
         /// <summary>Indexed by grid row. Null entry = nothing taken from that row.</summary>
         public PerkDefinition[] PrimaryPerks = new PerkDefinition[AffinityLoadoutRules.PerkRowCount];
 
-        /// <summary>Optional. Contributes perks only - never its passive, never an ultimate.</summary>
+        /// <summary>Required to complete a loadout. Contributes perks only - never its passive, never an ultimate.</summary>
         public AffinityDefinition Secondary;
 
         /// <summary>Indexed by grid row. The primary-only row's entry is always null.</summary>

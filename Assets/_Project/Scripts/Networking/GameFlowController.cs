@@ -2,13 +2,16 @@
 // GameFlowController — centralizes Bootstrap -> MainMenu -> Lobby ->
 // AffinitySelect -> Game scene sequencing.
 //
-// TWO STEPS, TWO LATCHES:
+// THREE STEPS, THREE LATCHES:
 //   The Lobby's Start button no longer loads Game directly. It loads the
 //   AffinitySelect scene (RequestStartMatch), and AffinitySelectCoordinator
 //   loads Game once its countdown expires or everyone is ready
-//   (RequestEnterGame). Each transition has its own latch so a second match can
-//   still run - a single shared flag would let one step's latch block the
-//   other's.
+//   (RequestEnterGame) - deliberately WITHOUT unloading AffinitySelect, so any
+//   player still incomplete keeps using that scene's UI to finish picking.
+//   Once every connected player has submitted, the coordinator calls
+//   RequestUnloadAffinitySelect to finally tear that scene down. Each
+//   transition has its own latch so a second match can still run - a single
+//   shared flag would let one step's latch block the others'.
 //
 // ARCHITECTURE:
 //   NetworkMenuController only reports connection facts (ServerStarted);
@@ -59,6 +62,7 @@ namespace OffAngle.Networking
 
         private bool _hasEnteredAffinitySelect;
         private bool _hasEnteredGame;
+        private bool _hasUnloadedAffinitySelect;
 
         private void Awake()
         {
@@ -129,6 +133,7 @@ namespace OffAngle.Networking
 
             _hasEnteredAffinitySelect = false;
             _hasEnteredGame = false;
+            _hasUnloadedAffinitySelect = false;
 
             // Still subscribed if the server stopped mid-load, i.e. before
             // HandleGameSceneLoaded ever ran to remove it.
@@ -155,7 +160,8 @@ namespace OffAngle.Networking
 
         /// <summary>
         /// Called by AffinitySelectCoordinator (host-only) when its countdown
-        /// expires or every player is ready. Loads the Game scene and spawns.
+        /// expires or every player is ready. Loads the Game scene and spawns
+        /// whoever has already submitted a loadout.
         /// </summary>
         public void RequestEnterGame()
         {
@@ -164,7 +170,27 @@ namespace OffAngle.Networking
             _hasEnteredGame = true;
 
             InstanceFinder.SceneManager.OnLoadEnd += HandleGameSceneLoaded;
-            InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_gameSceneName) { ReplaceScenes = ReplaceOption.All });
+
+            // ReplaceOption.None, not .All: AffinitySelect deliberately stays
+            // loaded so a player who is still incomplete can keep using its UI to
+            // finish picking. It is a global scene either way, so it is already
+            // loaded for every connection, including ready ones - RequestUnloadAffinitySelect
+            // tears it down once nobody needs it anymore.
+            InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_gameSceneName) { ReplaceScenes = ReplaceOption.None });
+        }
+
+        /// <summary>
+        /// Called by AffinitySelectCoordinator (host-only) once every connected
+        /// player has submitted a loadout. Unloads the AffinitySelect scene that
+        /// RequestEnterGame deliberately left loaded for stragglers.
+        /// </summary>
+        public void RequestUnloadAffinitySelect()
+        {
+            if (!InstanceFinder.IsServerStarted || _hasUnloadedAffinitySelect)
+                return;
+            _hasUnloadedAffinitySelect = true;
+
+            InstanceFinder.SceneManager.UnloadGlobalScenes(new SceneUnloadData(_affinitySelectSceneName));
         }
 
         private void HandleGameSceneLoaded(SceneLoadEndEventArgs args)
@@ -172,6 +198,20 @@ namespace OffAngle.Networking
             if (!args.QueueData.AsServer)
                 return;
             InstanceFinder.SceneManager.OnLoadEnd -= HandleGameSceneLoaded;
+
+            // Game was loaded with ReplaceOption.None, so FishNet has no reason to
+            // hand it the "active scene" - with AffinitySelect still the first
+            // global scene, FishNet's own SetActiveScene leaves (or puts) AffinitySelect
+            // active instead. Left alone, PlayerSpawner's Instantiate calls below
+            // would drop new players into AffinitySelect by default, and lose them
+            // the instant RequestUnloadAffinitySelect tears that scene down. Forcing
+            // Game active here, once, is enough for every later spawn too (join-in-
+            // progress, stragglers) - nothing re-touches the active scene until
+            // AffinitySelect actually unloads, at which point Game is the only
+            // global scene left and FishNet's own resolution agrees anyway.
+            UnityEngine.SceneManagement.Scene gameScene = UnitySceneManager.GetSceneByName(_gameSceneName);
+            if (gameScene.IsValid())
+                UnitySceneManager.SetActiveScene(gameScene);
 
             PlayerSpawner.Instance?.ResolveSpawnPoints();
             PlayerSpawner.Instance?.SpawnAll();

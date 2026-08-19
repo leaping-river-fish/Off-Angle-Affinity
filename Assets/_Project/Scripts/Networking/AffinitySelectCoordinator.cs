@@ -1,14 +1,14 @@
 // =============================================================================
 // AffinitySelectCoordinator — the networked surface of the AffinitySelect
-// scene: submission, the ready roster, and the countdown that starts the match.
+// scene: submission and the countdown that starts the match.
 //
 // ARCHITECTURE:
 //   A scene NetworkObject, built the same way as LobbyPlayerList - it exists on
 //   every peer from scene load and FishNet syncs it automatically, with no
 //   manual Spawn() call. It collects submissions and hands them to
 //   AffinitySelectionService, which is where they actually live: this object
-//   is destroyed the moment the Game scene replaces AffinitySelect, and the
-//   picks have to outlive it.
+//   is destroyed the moment AffinitySelect is unloaded, and the picks have to
+//   outlive it.
 //
 // AUTHORITY:
 //   Clients propose, the server disposes. CmdSubmitLoadout carries only ids;
@@ -25,13 +25,17 @@
 //   is one small message a second for the length of the selection phase, and
 //   it avoids needing a synchronized clock for what is a display value.
 //
-// UNREADY PLAYERS:
-//   By default anyone who has not submitted when the countdown expires is
-//   auto-filled with the default build so nobody is stranded. Turning that off
-//   gives the stricter "not spawned until ready" behaviour - the service and
-//   PlayerSpawner fully support a player readying up mid-match - but it
-//   requires the selection UI to be reachable from the Game scene, otherwise an
-//   unready player has no way to ever pick. See the tooltip.
+// STRAGGLERS ARE NEVER AUTO-FILLED:
+//   When the countdown expires, only players who have already submitted move
+//   into the Game scene - see BeginMatch. Anyone still incomplete is not
+//   given a default build and is not forced in; GameFlowController.RequestEnterGame
+//   deliberately leaves the AffinitySelect scene loaded (rather than replacing
+//   it) so those players can keep using this same UI to finish picking.
+//   AffinitySelectionService.ServerReadyStateChanged -> PlayerSpawner already
+//   spawns a straggler the instant they submit, exactly like a join-in-progress
+//   connection - see PlayerSpawner.ServerSpawnIfReady. Once every connected
+//   player has submitted, RequestUnloadAffinitySelect finally tears this scene
+//   down (see the Update loop below).
 //
 // MANUAL SETUP:
 //   1. Create the AffinitySelect scene and add it to Build Settings, between
@@ -40,13 +44,9 @@
 //      SCENE - it must be part of the scene so FishNet bakes it a scene ID.
 //   3. Add a NetworkObject component, then this component.
 //   4. Assign the project's AffinityRegistry.
-//   5. Point the selection UI at CmdSubmitLoadout / SecondsRemaining /
-//      ReadyConnectionIds.
+//   5. Point the selection UI at CmdSubmitLoadout / SecondsRemaining.
 // =============================================================================
 
-using System;
-using System.Collections.Generic;
-using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -62,22 +62,16 @@ namespace OffAngle.Networking
         [SerializeField] private AffinityRegistry _registry;
 
         [Header("Countdown")]
-        [Tooltip("Seconds players have to choose before the match starts automatically.")]
+        [Tooltip("Seconds players have to choose before ready players enter the match. Anyone still incomplete keeps selecting and is spawned in automatically the moment they submit.")]
         [SerializeField, Min(5f)] private float _selectionSeconds = 90f;
 
         [Tooltip("Start immediately once every connected player has submitted, rather than waiting out the clock.")]
         [SerializeField] private bool _startEarlyWhenAllReady = true;
 
-        [Tooltip("ON: anyone who hasn't submitted when the clock runs out is given the default build, so nobody is stranded. OFF: they are simply not spawned until they submit - which needs the selection UI to be reachable from the Game scene, or they can never pick at all.")]
-        [SerializeField] private bool _autoReadyUnpickedOnExpiry = true;
-
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<int> _secondsRemaining = new SyncVar<int>();
 
-        /// <summary>ClientIds that have submitted. UI binds to OnChange for a live roster; reuse LobbyPlayerList.LabelFor for names.</summary>
-        public readonly SyncList<int> ReadyConnectionIds = new SyncList<int>();
-
-        /// <summary>Whole seconds left before the match starts automatically.</summary>
+        /// <summary>Whole seconds left before ready players enter the match automatically.</summary>
         public int SecondsRemaining => _secondsRemaining.Value;
 
         /// <summary>Scene singleton, set once the object initializes on every peer.</summary>
@@ -89,12 +83,12 @@ namespace OffAngle.Networking
         /// object enabling in the same scene load cannot just check Instance once.
         /// Same caveat LobbyPlayerList documents.
         /// </summary>
-        public static event Action InstanceReady;
-
-        private readonly List<NetworkConnection> _unreadyBuffer = new List<NetworkConnection>();
+        public static event System.Action InstanceReady;
 
         private float _deadline;
         private bool _countdownRunning;
+        private bool _matchStarted;
+        private bool _affinitySelectFinalized;
 
         // ------------------------------------------------------------------
         // Lifecycle
@@ -108,16 +102,6 @@ namespace OffAngle.Networking
 
         private void OnDestroy()
         {
-            // Also here, not just OnStopServer. This object lives only in the
-            // AffinitySelect scene, and starting the match loads Game with
-            // ReplaceOption.All - which unloads that scene and destroys this. If
-            // OnStopServer does not run during that unload, the service delegate
-            // below keeps pointing at a destroyed object for the whole match.
-            // Unsubscribing twice is harmless; not unsubscribing is not. Exactly
-            // the trap LobbyPlayerList documents.
-            if (AffinitySelectionService.Instance != null)
-                AffinitySelectionService.Instance.ServerReadyStateChanged -= HandleReadyStateChanged;
-
             if (Instance == this)
                 Instance = null;
         }
@@ -126,13 +110,10 @@ namespace OffAngle.Networking
         {
             base.OnStartServer();
 
-            if (AffinitySelectionService.Instance != null)
-                AffinitySelectionService.Instance.ServerReadyStateChanged += HandleReadyStateChanged;
-
-            RebuildReadyList();
-
             _deadline = Time.time + _selectionSeconds;
             _countdownRunning = true;
+            _matchStarted = false;
+            _affinitySelectFinalized = false;
             _secondsRemaining.Value = Mathf.CeilToInt(_selectionSeconds);
         }
 
@@ -140,44 +121,46 @@ namespace OffAngle.Networking
         {
             base.OnStopServer();
 
-            try
-            {
-                if (AffinitySelectionService.Instance != null)
-                    AffinitySelectionService.Instance.ServerReadyStateChanged -= HandleReadyStateChanged;
-            }
-            catch (Exception e)
-            {
-                Debug.LogException(e, this);
-            }
-
             _countdownRunning = false;
-            ReadyConnectionIds.Clear();
         }
 
         private void Update()
         {
-            if (!_countdownRunning) return;
             if (!IsServerInitialized) return;
 
-            int remaining = Mathf.Max(0, Mathf.CeilToInt(_deadline - Time.time));
-
-            // Written only when the whole-second value actually changes - one small
-            // message per second rather than one per frame.
-            if (remaining != _secondsRemaining.Value)
-                _secondsRemaining.Value = remaining;
-
-            if (remaining <= 0)
+            if (_countdownRunning)
             {
-                BeginMatch(autoReadyStragglers: _autoReadyUnpickedOnExpiry);
-                return;
+                int remaining = Mathf.Max(0, Mathf.CeilToInt(_deadline - Time.time));
+
+                // Written only when the whole-second value actually changes - one
+                // small message per second rather than one per frame.
+                if (remaining != _secondsRemaining.Value)
+                    _secondsRemaining.Value = remaining;
+
+                if (remaining <= 0)
+                {
+                    _countdownRunning = false;
+                    BeginMatch();
+                }
+                else if (_startEarlyWhenAllReady &&
+                         AffinitySelectionService.Instance != null &&
+                         AffinitySelectionService.Instance.AreAllConnectedReady())
+                {
+                    _countdownRunning = false;
+                    BeginMatch();
+                }
             }
 
-            if (_startEarlyWhenAllReady &&
+            // Independent of the countdown above: once every connected player has
+            // submitted (whether that happened before the deadline or, for a
+            // straggler, well after ready players already entered the match),
+            // AffinitySelect has nothing left to do and can be torn down.
+            if (_matchStarted && !_affinitySelectFinalized &&
                 AffinitySelectionService.Instance != null &&
                 AffinitySelectionService.Instance.AreAllConnectedReady())
             {
-                // Nobody to auto-ready: everyone submitted, which is why we are here.
-                BeginMatch(autoReadyStragglers: false);
+                _affinitySelectFinalized = true;
+                GameFlowController.Instance?.RequestUnloadAffinitySelect();
             }
         }
 
@@ -228,51 +211,16 @@ namespace OffAngle.Networking
         // Server internals
         // ------------------------------------------------------------------
 
-        private void HandleReadyStateChanged(NetworkConnection conn) => RebuildReadyList();
-
-        private void RebuildReadyList()
+        /// <summary>
+        /// Moves every currently-ready player into the Game scene. Anyone not yet
+        /// ready is left exactly where they are - see the STRAGGLERS ARE NEVER
+        /// AUTO-FILLED note at the top of this file.
+        /// </summary>
+        private void BeginMatch()
         {
-            if (!IsServerInitialized) return;
-
-            AffinitySelectionService service = AffinitySelectionService.Instance;
-            if (service == null) return;
-
-            // Full rebuild rather than a diff: the roster is at most a handful of
-            // ints and changes a few times per match.
-            ReadyConnectionIds.Clear();
-
-            if (InstanceFinder.ServerManager == null) return;
-
-            foreach (NetworkConnection conn in InstanceFinder.ServerManager.Clients.Values)
-            {
-                if (conn == null || !conn.IsActive) continue;
-                if (!service.IsReady(conn)) continue;
-
-                ReadyConnectionIds.Add(conn.ClientId);
-            }
-        }
-
-        private void BeginMatch(bool autoReadyStragglers)
-        {
-            _countdownRunning = false;
+            if (_matchStarted) return;
+            _matchStarted = true;
             _secondsRemaining.Value = 0;
-
-            AffinitySelectionService service = AffinitySelectionService.Instance;
-
-            if (autoReadyStragglers && service != null && _registry != null)
-            {
-                service.CollectUnready(_unreadyBuffer);
-
-                for (int i = 0; i < _unreadyBuffer.Count; i++)
-                {
-                    // Sanitize(null) is the full default build, not an empty one.
-                    AffinityLoadout fallback = AffinityLoadoutRules.Sanitize(_registry, null);
-                    service.ServerSetLoadout(_unreadyBuffer[i], fallback);
-                }
-
-                if (_unreadyBuffer.Count > 0)
-                    Debug.Log($"[{nameof(AffinitySelectCoordinator)}] Countdown expired; {_unreadyBuffer.Count} player(s) auto-filled with the default build.");
-            }
 
             if (GameFlowController.Instance == null)
             {

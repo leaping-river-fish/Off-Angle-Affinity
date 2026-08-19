@@ -20,10 +20,8 @@
 //   click-to-inspect even while disabled (see AffinityTreeNodeUI).
 // =============================================================================
 
-using System.Collections.Generic;
 using OffAngle.Affinities;
 using OffAngle.Networking;
-using OffAngle.UI;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -40,6 +38,7 @@ namespace OffAngle.UI.Affinities
 
         [Header("Status")]
         [SerializeField] private TMP_Text _statusText;
+        [SerializeField] private TMP_Text _countdownText;
 
         [Header("Carousel")]
         [Tooltip("The whole browse row (arrows + name). Hidden once the active slot has a locked-in affinity.")]
@@ -78,13 +77,9 @@ namespace OffAngle.UI.Affinities
         [Header("Confirm / Ready")]
         [SerializeField] private Button _confirmButton;
         [SerializeField] private TMP_Text _confirmButtonLabel;
-        [SerializeField] private Transform _readyRosterContainer;
-        [SerializeField] private PlayerRowUI _readyRowPrefab;
 
         [Header("Description Panel")]
         [SerializeField] private AffinityDescriptionPanelUI _descriptionPanel;
-
-        private readonly List<PlayerRowUI> _readyRows = new List<PlayerRowUI>();
 
         private AffinityRegistry _registry;
         private int _carouselIndex;
@@ -154,7 +149,6 @@ namespace OffAngle.UI.Affinities
                 LocalAffinitySelection.Instance.SelectionChanged -= HandleSelectionChanged;
 
             AffinitySelectCoordinator.InstanceReady -= HandleCoordinatorReady;
-            UnsubscribeFromCoordinator();
         }
 
         private void OnDestroy()
@@ -184,6 +178,7 @@ namespace OffAngle.UI.Affinities
 
             _lastDisplayedSeconds = seconds;
             RefreshConfirmButton();
+            RefreshCountdownText();
         }
 
         // ------------------------------------------------------------------
@@ -412,48 +407,7 @@ namespace OffAngle.UI.Affinities
             if (_statusText == null) return;
 
             LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (selection == null)
-            {
-                _statusText.text = "";
-                return;
-            }
-
-            List<string> lines = new List<string>();
-
-            if (selection.Primary == null)
-            {
-                lines.Add("Select a Primary affinity");
-            }
-            else
-            {
-                if (selection.Ultimate == null)
-                    lines.Add("Select a Primary Ultimate");
-
-                int missingPrimaryPerks = 0;
-                for (int row = 0; row < AffinityLoadoutRules.PerkRowCount; row++)
-                {
-                    if (selection.GetPerk(row, false) == null)
-                        missingPrimaryPerks++;
-                }
-                if (missingPrimaryPerks > 0)
-                    lines.Add($"Select {missingPrimaryPerks} more Primary Perk(s)");
-            }
-
-            // Secondary is optional - only nag once the player has opted in.
-            if (selection.Secondary != null)
-            {
-                int missingSecondaryPerks = 0;
-                for (int row = 0; row < AffinityLoadoutRules.PerkRowCount; row++)
-                {
-                    if (!AffinityLoadoutRules.IsRowAvailable(row, asSecondary: true)) continue;
-                    if (selection.GetPerk(row, true) == null)
-                        missingSecondaryPerks++;
-                }
-                if (missingSecondaryPerks > 0)
-                    lines.Add($"Select {missingSecondaryPerks} more Secondary Perk(s)");
-            }
-
-            _statusText.text = lines.Count == 0 ? "Loadout complete" : string.Join("\n", lines);
+            _statusText.text = selection != null && selection.IsComplete ? "Loadout Complete" : "Loadout Incomplete";
         }
 
         private void RefreshSelectButtonLabel()
@@ -465,6 +419,18 @@ namespace OffAngle.UI.Affinities
                 _selectButtonLabel.text = "Select";
             if (_selectButton != null)
                 _selectButton.interactable = CurrentBrowsedAffinity() != null;
+        }
+
+        private void RefreshCountdownText()
+        {
+            if (_countdownText == null) return;
+            if (AffinitySelectCoordinator.Instance == null)
+            {
+                _countdownText.text = "";
+                return;
+            }
+
+            _countdownText.text = AffinitySelectCoordinator.Instance.SecondsRemaining.ToString();
         }
 
         private void RefreshConfirmButton()
@@ -626,37 +592,8 @@ namespace OffAngle.UI.Affinities
         {
             if (AffinitySelectCoordinator.Instance == null) return;
 
-            AffinitySelectCoordinator.Instance.ReadyConnectionIds.OnChange += HandleReadyListChanged;
-            RefreshReadyRoster();
             RefreshConfirmButton();
-        }
-
-        private void UnsubscribeFromCoordinator()
-        {
-            if (AffinitySelectCoordinator.Instance != null)
-                AffinitySelectCoordinator.Instance.ReadyConnectionIds.OnChange -= HandleReadyListChanged;
-        }
-
-        private void HandleReadyListChanged(FishNet.Object.Synchronizing.SyncListOperation op, int index, int oldItem, int newItem, bool asServer) =>
-            RefreshReadyRoster();
-
-        private void RefreshReadyRoster()
-        {
-            foreach (PlayerRowUI row in _readyRows)
-            {
-                if (row != null)
-                    Destroy(row.gameObject);
-            }
-            _readyRows.Clear();
-
-            if (AffinitySelectCoordinator.Instance == null || _readyRowPrefab == null || _readyRosterContainer == null) return;
-
-            foreach (int connectionId in AffinitySelectCoordinator.Instance.ReadyConnectionIds)
-            {
-                PlayerRowUI row = Instantiate(_readyRowPrefab, _readyRosterContainer);
-                row.SetLabel(LobbyPlayerList.LabelFor(connectionId));
-                _readyRows.Add(row);
-            }
+            RefreshCountdownText();
         }
     }
 }

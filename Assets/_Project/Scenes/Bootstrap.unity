@@ -214,6 +214,7 @@ GameObject:
   - component: {fileID: 1874922823}
   - component: {fileID: 1874922822}
   - component: {fileID: 1874922825}
+  - component: {fileID: 1874922826}
   m_Layer: 0
   m_Name: NetworkManager
   m_TagString: Untagged
@@ -368,6 +369,18 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.LocalAffinitySelection
   _registry: {fileID: 11400000, guid: 379dff9179fc3b04b9a344fc5d70fa20, type: 2}
+--- !u!114 &1874922826
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1874922816}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 662d741c9e597e74fa9b3a5887c0d46f, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.AffinitySelectionService
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
