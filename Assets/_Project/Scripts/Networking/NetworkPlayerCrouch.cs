@@ -72,6 +72,15 @@ namespace OffAngle.Networking
         private bool  _lastSentValue;
         private float _currentScaleY = 1f;
 
+        // Set by SolarAscensionEffect while its own scale-up owns this same
+        // transform. Crouch's lerp state keeps advancing underneath so scale
+        // resumes smoothly (no pop) once the override is released, but
+        // ApplyScale() itself is skipped so it can't stomp the ascension
+        // scale every frame - see the bug this was written to fix: ascension
+        // set the scale via RPC and this component's next Update() silently
+        // overwrote it back to ~1 before anyone saw it.
+        private bool _ascensionOverrideActive;
+
         // Captured once at Awake, before anything can modify the controller -
         // mirrors PlayerController.Awake()'s StandingHeight/StandingCenter
         // capture so both stay in agreement about what "standing" means.
@@ -129,7 +138,8 @@ namespace OffAngle.Networking
 
             float scaleTarget = _isCrouching.Value ? _crouchScaleY : 1f;
             _currentScaleY = Mathf.MoveTowards(_currentScaleY, scaleTarget, rate * Time.deltaTime);
-            ApplyScale();
+            if (!_ascensionOverrideActive)
+                ApplyScale();
 
             // The owner's own MovementStateMachine already drives its real
             // CharacterController precisely (and headroom-gated) every Tick -
@@ -151,6 +161,15 @@ namespace OffAngle.Networking
             if (_thirdPersonBody == null) return;
             _thirdPersonBody.localScale = new Vector3(1f, _currentScaleY, 1f);
         }
+
+        /// <summary>
+        /// Called by SolarAscensionEffect (on every peer that applies the
+        /// ascension scale) to claim or release exclusive control of
+        /// _thirdPersonBody's scale. Runs identically on owner, remotes, and
+        /// the server, so it never leaves crouch and ascension disagreeing
+        /// about which one owns the transform on a given peer.
+        /// </summary>
+        public void SetScaleOverrideActive(bool active) => _ascensionOverrideActive = active;
 
         private void ApplyControllerHeight()
         {

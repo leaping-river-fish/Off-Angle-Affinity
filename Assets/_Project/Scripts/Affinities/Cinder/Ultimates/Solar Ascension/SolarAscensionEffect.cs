@@ -17,8 +17,15 @@
 //   ServerBeginAscension/ServerEndAscension run server-only. The movement
 //   lift and the owner-local fire bypass are reached via TargetRpc, exactly
 //   like PlayerGrapple reaches its owner - see IAbilityMovementDriver.cs and
-//   MovementStateMachine.BeginAbilityMovement. The visual scale-up is an
-//   ObserversRpc since every peer needs to see it, not just the owner.
+//   MovementStateMachine.BeginAbilityMovement. The visual scale-up
+//   (ApplyAscendedVisual) is applied directly on the server AND broadcast via
+//   ObserversRpc, since every peer needs to see it (not just the owner) but
+//   ObserversRpc alone never reaches a dedicated server - and the server's
+//   own copy of the scaled transform is what PlayerWeaponController's
+//   authoritative hit-detection raycast reads. ApplyAscendedVisual also
+//   claims/releases the transform from NetworkPlayerCrouch
+//   (SetScaleOverrideActive) so its own per-frame crouch-scale Update() can't
+//   stomp the ascension scale back to normal the very next frame.
 //
 // MANUAL SETUP:
 //   Add to the Player prefab root, alongside PlayerUltimate/PlayerAffinity/
@@ -50,6 +57,7 @@ namespace OffAngle.Combat
         [SerializeField] private Shield _shield;
         [SerializeField] private UltimateDurationEffect _durationEffect;
         [SerializeField] private Health _health;
+        [SerializeField] private NetworkPlayerCrouch _crouch;
 
         [Tooltip("The player's visual model root to scale up while ascended - NOT the CharacterController root. Leave null to auto-resolve the child named 'Third Person Body'. Scaling this also scales the body/head hit colliders parented under it - an accepted tradeoff (a bigger, easier target while airborne/immobile/gun-hidden), see the implementation plan.")]
         [SerializeField] private Transform _thirdPersonBodyRoot;
@@ -66,6 +74,7 @@ namespace OffAngle.Combat
             if (_shield == null) _shield = GetComponent<Shield>();
             if (_durationEffect == null) _durationEffect = GetComponent<UltimateDurationEffect>();
             if (_health == null) _health = GetComponent<Health>();
+            if (_crouch == null) _crouch = GetComponent<NetworkPlayerCrouch>();
 
             if (_thirdPersonBodyRoot == null)
             {
@@ -135,6 +144,11 @@ namespace OffAngle.Combat
             _weaponEquipper?.ServerSetWeaponHiddenOverride(true);
             _durationEffect?.ServerBegin(duration);
 
+            // Applied directly here (not just via the ObserversRpc below) so
+            // the server's own copy of the transform - the one PlayerWeaponController's
+            // authoritative hit-detection raycast actually reads - gets the
+            // bigger hitbox too. ObserversRpc never runs on a dedicated server.
+            ApplyAscendedVisual(true, scaleMultiplier);
             RpcSetAscendedVisual(true, scaleMultiplier);
             TargetRpcBeginAscensionMovement(base.Owner, riseHeight, riseTime, duration);
 
@@ -170,16 +184,25 @@ namespace OffAngle.Combat
             _weaponEquipper?.ServerSetWeaponHiddenOverride(false);
             _durationEffect?.ServerEnd();
 
+            ApplyAscendedVisual(false, 1f);
             RpcSetAscendedVisual(false, 1f);
             TargetRpcEndAscensionMovement(base.Owner);
         }
 
-        [ObserversRpc]
-        private void RpcSetAscendedVisual(bool ascended, float scaleMultiplier)
+        // Shared by the direct server-side call above and the ObserversRpc
+        // below so every peer - server included - applies the exact same
+        // scale and claims/releases the transform from NetworkPlayerCrouch
+        // the same way. See NetworkPlayerCrouch.SetScaleOverrideActive.
+        private void ApplyAscendedVisual(bool ascended, float scaleMultiplier)
         {
+            _crouch?.SetScaleOverrideActive(ascended);
             if (_thirdPersonBodyRoot == null) return;
             _thirdPersonBodyRoot.localScale = Vector3.one * (ascended ? Mathf.Max(0.01f, scaleMultiplier) : 1f);
         }
+
+        [ObserversRpc]
+        private void RpcSetAscendedVisual(bool ascended, float scaleMultiplier) =>
+            ApplyAscendedVisual(ascended, scaleMultiplier);
 
         [TargetRpc]
         private void TargetRpcBeginAscensionMovement(NetworkConnection conn, float riseHeight, float riseTime, float duration)
