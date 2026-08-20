@@ -1632,6 +1632,9 @@ MonoBehaviour:
     WallRunMaxSpeed: 12
     WallRunGravityScale: 0.2
     WallDetectionDistance: 0.8
+    WallRunMask:
+      serializedVersion: 2
+      m_Bits: 4294967295
     WallAngleTolerance: 10
     SameWallContactTolerance: 1.5
     WallReattachCooldown: 1
@@ -3650,7 +3653,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2000000000000002, guid: 0bcb48d952724cc6ae41d70338677b77, type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: 2
+      value: 250
       objectReference: {fileID: 0}
     - target: {fileID: 2000000000000002, guid: 0bcb48d952724cc6ae41d70338677b77, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x

@@ -48,6 +48,8 @@ namespace OffAngle.UI.Combat
 
         private void HandleDurationChanged(float remaining, float total, bool active)
         {
+            Debug.Log($"[{nameof(UltimateDurationBar)}] remaining={remaining:F2} total={total:F2} active={active}"); // TEMP DEBUG - remove after diagnosing
+
             if (_root != null)
                 _root.SetActive(active);
 

@@ -74,7 +74,6 @@ namespace OffAngle.UI.Combat
 
         private void HandleChargeChanged(float charge, float required)
         {
-            Debug.Log($"[{nameof(UltimateHUD)}] charge={charge:F2} required={required:F2}"); // TEMP DEBUG - remove after diagnosing
             float normalized = required <= 0f ? 0f : Mathf.Clamp01(charge / required);
             bool isReady = required > 0f && charge >= required;
 
