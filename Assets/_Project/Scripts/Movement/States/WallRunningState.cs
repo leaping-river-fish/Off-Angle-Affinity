@@ -91,10 +91,16 @@ namespace OffAngle.Movement.States
                 tangentialSpeed = -tangentialSpeed;
             }
 
-            float maxSpeed = ctx.Settings.WallRunMaxSpeed * ctx.SpeedMultiplier;
+            // Floor slow entries so attachment feels committed, but do NOT
+            // clamp fast entries down to WallRunMaxSpeed here - Tick()'s own
+            // Mathf.MoveTowards(tangentialSpeed, maxSpeed, accel * deltaTime)
+            // already decays excess speed toward the cap at WallRunAcceleration,
+            // the same rate it accelerates slow entries up. Clamping here
+            // pre-empted that and turned a fast attach into an instant snap.
+            // MaxPreservedSpeed is still a hard safety ceiling, same role it
+            // plays in GroundMomentum.
             tangentialSpeed = Mathf.Max(tangentialSpeed, ctx.Settings.WallRunEntrySpeed);
-            if (tangentialSpeed > maxSpeed)
-                tangentialSpeed = maxSpeed;
+            tangentialSpeed = Mathf.Min(tangentialSpeed, ctx.Settings.MaxPreservedSpeed);
 
             Vector3 runVelocity = _tangent * tangentialSpeed;
             ctx.Velocity = new Vector3(runVelocity.x, 0f, runVelocity.z);
@@ -170,8 +176,21 @@ namespace OffAngle.Movement.States
             }
 
             float maxSpeed = ctx.Settings.WallRunMaxSpeed * ctx.SpeedMultiplier;
-            float accel = ctx.Settings.WallRunAcceleration * ctx.SpeedMultiplier;
-            tangentialSpeed = Mathf.MoveTowards(tangentialSpeed, maxSpeed, accel * deltaTime);
+
+            // Below the cap: accelerate up at WallRunAcceleration, unchanged.
+            // Above it (fast entry, or momentum carried in from elsewhere):
+            // decay down at AirMomentumDecay instead - the same weak rate
+            // AirborneState uses so a grapple/slide-jump doesn't feel
+            // cancelled by normal input (see GroundMomentum.cs). Reusing
+            // WallRunAcceleration for both directions made excess entry
+            // speed bleed off just as fast as it climbs to the cap, which
+            // read as a near-instant snap despite not being a literal clamp.
+            // Matches ComputeAirborneMomentumVelocity: AirMomentumDecay is
+            // NOT scaled by SpeedMultiplier there, so it isn't here either.
+            float rate = tangentialSpeed > maxSpeed
+                ? ctx.Settings.AirMomentumDecay
+                : ctx.Settings.WallRunAcceleration * ctx.SpeedMultiplier;
+            tangentialSpeed = Mathf.MoveTowards(tangentialSpeed, maxSpeed, rate * deltaTime);
 
             bool tooSlow = tangentialSpeed < ctx.Settings.WallRunMinSpeed;
             bool timedOut = ctx.WallRunElapsedTime >= ctx.Settings.WallRunDuration;
@@ -240,14 +259,14 @@ namespace OffAngle.Movement.States
 
         private void SoftExitLostContact(MovementStateContext ctx)
         {
-            Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
-            float speed = horizontal.magnitude;
-            float softCap = ctx.Settings.NormalMaxSpeed * ctx.SpeedMultiplier;
-
-            if (speed > softCap && speed > 0.001f)
-                horizontal = horizontal * (softCap / speed);
-
-            ctx.Velocity = new Vector3(horizontal.x, 0f, horizontal.z);
+            // Hand XZ speed off untouched - AirborneState.ApplyAirControl
+            // already decays anything above NormalMaxSpeed via
+            // GroundMomentum.ComputeAirborneMomentumVelocity (AirMomentumDecay)
+            // instead of snapping it down; see AirborneState.cs's AIR CONTROL
+            // MODEL note. Rescaling to NormalMaxSpeed here duplicated that
+            // with an instant cut instead of a decay, which is what made
+            // losing wall contact feel like a hard stop instead of a fall-off.
+            ctx.Velocity = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
         }
 

@@ -69,7 +69,13 @@ namespace OffAngle.Movement
             float distance = ctx.Settings.WallDetectionDistance;
             float sphereRadius = Mathf.Max(0.05f, ctx.Controller.radius * SphereRadiusFraction);
             int selfLayer = player.gameObject.layer;
-            int mask = ~(1 << selfLayer);
+            // WallRunMask lets designers opt specific geometry (e.g. a curved
+            // shell's thin end caps) out of wall running without touching
+            // physics collision - see MovementSettings.WallRunMask. The
+            // player's own layer is excluded unconditionally regardless of
+            // that mask, same self-collision safety StandCheckMask relies on
+            // the designer to set manually.
+            int mask = ctx.Settings.WallRunMask & ~(1 << selfLayer);
             float angleTol = ctx.Settings.WallAngleTolerance;
 
             bool leftValid  = TryCastWall(origin, -player.right, distance, sphereRadius, mask, angleTol, out RaycastHit leftHit);

@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: ebb_flow
   DisplayName: Ebb & Flow
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 11f798c72e7bc70418f249fd3a8810ea, type: 3}
   Description: 
   Effects: []

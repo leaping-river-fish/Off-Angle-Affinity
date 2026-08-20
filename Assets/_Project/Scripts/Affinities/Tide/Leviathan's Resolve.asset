@@ -13,5 +13,6 @@ MonoBehaviour:
   m_Name: Leviathan's Resolve
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityPassive
   DisplayName: Leviathan's Resolve
+  Icon: {fileID: 21300000, guid: ec64a0f29b5051c4eb10020fac48c631, type: 3}
   Description: 
   Effects: []

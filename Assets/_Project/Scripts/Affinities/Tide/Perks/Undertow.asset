@@ -14,6 +14,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.PerkDefinition
   Id: undertow
   DisplayName: Undertow
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: f3901e2f4a5179a429da20bb308a0eed, type: 3}
   Description: 
   Effects: []

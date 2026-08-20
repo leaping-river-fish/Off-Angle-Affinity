@@ -459,13 +459,15 @@ namespace OffAngle.Movement
         public float WallRunDuration = 2.5f;
         [Tooltip("Acceleration (m/s²) applied along the wall-tangent direction while wall running, toward WallRunMaxSpeed.")]
         public float WallRunAcceleration = 14f;
-        [Tooltip("Hard speed ceiling (m/s) for wall-tangential speed while wall running. Entry speed above this is clamped down; below this, entry is floored to WallRunEntrySpeed so attachment feels committed.")]
+        [Tooltip("Wall-tangential speed (m/s) that WallRunAcceleration pulls toward, from either direction. Entry speed above this decays down toward it (not clamped instantly - see WallRunningState.Enter()); below this, entry is floored to WallRunEntrySpeed so attachment feels committed.")]
         public float WallRunMaxSpeed = 10f;
         [Range(0f, 1f)]
         [Tooltip("Fraction of normal gravity applied during wall run while WallVerticalInput is 0. 0 = stuck at attach height (recommended default). Raise above 0 only if you want a slow downward drift.")]
         public float WallRunGravityScale = 0f;
         [Tooltip("Detection reach (m) from the capsule center for left/right/into-wall casts. Slightly larger than Controller.radius; too large keeps you stuck past wall ends and flings you along the wall.")]
         public float WallDetectionDistance = 0.95f;
+        [Tooltip("Layers eligible for wall running (see WallDetection.TryFindWall). Default (everything) matches old behavior. The player's own layer is always excluded automatically regardless of this mask. Put geometry that should never be wall-run-able - e.g. thin end caps on a curved shell where you want the run to end cleanly instead of snagging on a near-perpendicular normal - on a layer left OUT of this mask. Unrelated instances of the same piece (e.g. a thicker arch whose caps SHOULD be runnable) simply keep their layer in the mask - this is a per-object placement choice, not a global switch.")]
+        public LayerMask WallRunMask = ~0;
         [Tooltip("Maximum degrees a surface normal may deviate from vertical (90° from world-up) and still count as a wall. Filters floors, ceilings, and shallow ramps. 25 ≈ walls within ~65–115° of world-up.")]
         public float WallAngleTolerance = 25f;
         [Tooltip("Max distance (m) between consecutive wall contacts that still count as the SAME wall when the collider identity differs (e.g. two angled panels butted together). Same-collider contacts always count as the same wall regardless of this value.")]
