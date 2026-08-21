@@ -37,6 +37,7 @@ namespace OffAngle.UI
         [SerializeField] private RectTransform _rowContainer;
         [SerializeField] private PlayerRowUI _playerRowPrefab;
         [SerializeField] private Button _startGameButton;
+        [SerializeField] private Button _leaveGameButton;
 
         private readonly List<PlayerRowUI> _rows = new List<PlayerRowUI>();
 
@@ -52,6 +53,9 @@ namespace OffAngle.UI
 
             if (_startGameButton != null)
                 _startGameButton.onClick.AddListener(OnStartGameClicked);
+
+            if (_leaveGameButton != null)
+                _leaveGameButton.onClick.AddListener(OnLeaveGameClicked);
         }
 
         private void OnEnable()
@@ -63,6 +67,7 @@ namespace OffAngle.UI
             _controller.SessionCodeReady += HandleSessionCodeReady;
             _controller.HostAddressReady += HandleHostAddressReady;
             LobbyPlayerList.InstanceReady += SubscribeToPlayerList;
+            PlayerNameRegistry.InstanceReady += SubscribeToNameRegistry;
 
             // Lobby is its own FishNet scene now: it only ever loads for a peer
             // that's already connected (the host right after the server starts,
@@ -84,14 +89,19 @@ namespace OffAngle.UI
             _controller.SessionCodeReady -= HandleSessionCodeReady;
             _controller.HostAddressReady -= HandleHostAddressReady;
             LobbyPlayerList.InstanceReady -= SubscribeToPlayerList;
+            PlayerNameRegistry.InstanceReady -= SubscribeToNameRegistry;
 
             UnsubscribeFromPlayerList();
+            UnsubscribeFromNameRegistry();
         }
 
         private void OnDestroy()
         {
             if (_startGameButton != null)
                 _startGameButton.onClick.RemoveListener(OnStartGameClicked);
+
+            if (_leaveGameButton != null)
+                _leaveGameButton.onClick.RemoveListener(OnLeaveGameClicked);
         }
 
         // ------------------------------------------------------------------
@@ -115,6 +125,7 @@ namespace OffAngle.UI
             RefreshCodeText();
 
             SubscribeToPlayerList();
+            SubscribeToNameRegistry();
         }
 
         private void HandleDisconnected(string reason)
@@ -123,6 +134,7 @@ namespace OffAngle.UI
                 _panelRoot.SetActive(false);
 
             UnsubscribeFromPlayerList();
+            UnsubscribeFromNameRegistry();
             ClearRows();
 
             _sessionCode = "";
@@ -190,6 +202,29 @@ namespace OffAngle.UI
         private void HandlePlayerListChanged(FishNet.Object.Synchronizing.SyncListOperation op, int index, int oldItem, int newItem, bool asServer) =>
             RebuildRows();
 
+        // Same "any change -> rebuild everything" idiom as the player list
+        // above, so a rename while everyone is sitting in the lobby shows up
+        // immediately instead of waiting for the next join/leave.
+        private void SubscribeToNameRegistry()
+        {
+            if (PlayerNameRegistry.Instance == null)
+                return;
+
+            PlayerNameRegistry.Instance.Names.OnChange += HandleNameRegistryChanged;
+            RebuildRows();
+        }
+
+        private void UnsubscribeFromNameRegistry()
+        {
+            if (PlayerNameRegistry.Instance == null)
+                return;
+
+            PlayerNameRegistry.Instance.Names.OnChange -= HandleNameRegistryChanged;
+        }
+
+        private void HandleNameRegistryChanged(FishNet.Object.Synchronizing.SyncDictionaryOperation op, int key, string value, bool asServer) =>
+            RebuildRows();
+
         private void RebuildRows()
         {
             ClearRows();
@@ -222,5 +257,10 @@ namespace OffAngle.UI
         // Loads the AffinitySelect scene, not the Game scene - the match starts
         // from there once players have chosen. See GameFlowController.
         private void OnStartGameClicked() => GameFlowController.Instance?.RequestStartMatch();
+
+        // Same LeaveSession() path as PauseMenuUI/MatchEndUI: stops the
+        // connection (and the server too, if host) and returns to the main
+        // menu once the resulting Stopped callback fires.
+        private void OnLeaveGameClicked() => _controller?.LeaveSession();
     }
 }

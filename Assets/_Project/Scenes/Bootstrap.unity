@@ -305,6 +305,7 @@ MonoBehaviour:
   _joinCodeUnavailableMessage: Couldn't generate a join code - share your IP instead
   _serverStartFailedMessage: Server failed to start - port may be in use
   _leftSessionMessage: Left the session
+  _matchAlreadyStartedMessage: That match has already started
   _mainMenuSceneName: MainMenu
 --- !u!114 &1874922822
 MonoBehaviour:
@@ -336,6 +337,7 @@ MonoBehaviour:
   _affinitySelectSceneName: AffinitySelect
   _gameSceneName: Game
   _networkMenuController: {fileID: 0}
+  _playerNameRegistryPrefab: {fileID: 8228040552491198612, guid: 94ffe94a111246d4b80d83d9847e027b, type: 3}
 --- !u!114 &1874922824
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -379,7 +381,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 662d741c9e597e74fa9b3a5887c0d46f, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.AffinitySelectionService
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

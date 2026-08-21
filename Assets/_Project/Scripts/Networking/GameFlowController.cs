@@ -42,6 +42,7 @@
 
 using FishNet;
 using FishNet.Managing.Scened;
+using FishNet.Object;
 using FishNet.Transporting;
 using UnityEngine;
 using UnitySceneManager = UnityEngine.SceneManagement.SceneManager;
@@ -66,6 +67,9 @@ namespace OffAngle.Networking
 
         [Tooltip("Leave null to auto-resolve via GetComponent (same GameObject).")]
         [SerializeField] private NetworkMenuController _networkMenuController;
+
+        [Tooltip("Root NetworkObject of the PlayerNameRegistry prefab. Spawned once, as a global object, the moment hosting starts - see HandleServerStarted. Must NOT be a scene object; FishNet ignores IsGlobal on those.")]
+        [SerializeField] private NetworkObject _playerNameRegistryPrefab;
 
         private bool _hasEnteredAffinitySelect;
         private bool _hasEnteredGame;
@@ -168,7 +172,35 @@ namespace OffAngle.Networking
         }
 
         private void HandleServerStarted()
-            => InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_lobbySceneName) { ReplaceScenes = ReplaceOption.All });
+        {
+            SpawnPlayerNameRegistry();
+            InstanceFinder.SceneManager.LoadGlobalScenes(new SceneLoadData(_lobbySceneName) { ReplaceScenes = ReplaceOption.All });
+        }
+
+        // PlayerNameRegistry must survive every scene transition from here on,
+        // which rules out a scene object the way LobbyPlayerList/
+        // AffinitySelectCoordinator use one - Start() above already unloads
+        // Bootstrap (and anything placed in it) the moment MainMenu loads.
+        // Spawning it here, as a global object, is what actually keeps it
+        // alive: FishNet visibility-tracks a global spawned object for every
+        // connection regardless of loaded scenes, including a client that
+        // joins after this already ran. SetIsGlobal must run between
+        // Instantiate and Spawn - FishNet only allows changing it before the
+        // object initializes onto the network.
+        private void SpawnPlayerNameRegistry()
+        {
+            if (_playerNameRegistryPrefab == null)
+            {
+                Debug.LogError($"[{nameof(GameFlowController)}] No PlayerNameRegistry prefab assigned; player display names will never leave PlayerPrefs.", this);
+                return;
+            }
+
+            if (PlayerNameRegistry.Instance != null) return;
+
+            NetworkObject instance = Instantiate(_playerNameRegistryPrefab);
+            instance.SetIsGlobal(true);
+            InstanceFinder.ServerManager.Spawn(instance);
+        }
 
         /// <summary>
         /// Called by LobbyMenuUI's Start Game button (host-only). Loads the
