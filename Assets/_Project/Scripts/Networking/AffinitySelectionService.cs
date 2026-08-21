@@ -26,6 +26,12 @@
 //   ready flags - and every player would spawn instantly with a stale build.
 //   Same trap PlayerSpawner and GameFlowController both guard against.
 //
+//   ServerResetForNewMatch() is the same reset triggered mid-session, by
+//   GameFlowController.RequestReturnToLobby (the server keeps running, so
+//   HandleServerConnectionState's own reset never fires). Without it, the
+//   next AffinitySelect screen would see every connection already marked
+//   ready and skip the picker entirely.
+//
 // MANUAL SETUP:
 //   Add to the persistent NetworkManager GameObject in the Bootstrap scene,
 //   alongside GameFlowController / PlayerSpawner / LocalAffinitySelection.
@@ -178,6 +184,18 @@ namespace OffAngle.Networking
         {
             if (args.ConnectionState != LocalConnectionState.Stopped) return;
 
+            ServerResetForNewMatch();
+        }
+
+        /// <summary>
+        /// Server-only. Clears every recorded loadout/ready flag WITHOUT raising
+        /// ServerReadyStateChanged. Called by GameFlowController.RequestReturnToLobby
+        /// AFTER PlayerSpawner.ServerResetForNewMatch() - raising the event here
+        /// would call back into PlayerSpawner.ServerSpawnIfReady, which must
+        /// already see _hasGameStarted as false or the ordering breaks.
+        /// </summary>
+        public void ServerResetForNewMatch()
+        {
             _loadouts.Clear();
             _ready.Clear();
         }

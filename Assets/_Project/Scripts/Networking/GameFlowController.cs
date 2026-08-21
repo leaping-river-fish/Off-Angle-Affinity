@@ -13,6 +13,13 @@
 //   transition has its own latch so a second match can still run - a single
 //   shared flag would let one step's latch block the others'.
 //
+//   RequestReturnToLobby is the reverse trip, called by the win/lose screen's
+//   "Return to Lobby" button once MatchManager has declared a winner. It has
+//   NO latch of its own (it must be callable again after every rematch), and
+//   in addition to resetting the three latches above, it must also reset the
+//   per-match state PlayerSpawner and AffinitySelectionService each hold on
+//   the persistent NetworkManager GameObject - see that method for why.
+//
 // ARCHITECTURE:
 //   NetworkMenuController only reports connection facts (ServerStarted);
 //   scene-loading decisions live here instead, so this is the one place that
@@ -233,6 +240,61 @@ namespace OffAngle.Networking
             _hasUnloadedAffinitySelect = true;
 
             InstanceFinder.SceneManager.UnloadGlobalScenes(new SceneUnloadData(_affinitySelectSceneName));
+        }
+
+        /// <summary>
+        /// Called by MatchEndUI's "Return to Lobby" button (host-only) once
+        /// MatchManager has declared a winner. Unlike the three forward
+        /// transitions above, this has NO latch - it must be callable again
+        /// for match 3, 4, etc. Everything a match latches outside this class
+        /// (PlayerSpawner's queue/started flag, AffinitySelectionService's
+        /// ready set) is reset here too, in a specific order, BEFORE the scene
+        /// load - without that, the Lobby this loads looks fine but is broken
+        /// underneath: PlayerSpawner would still think the match already
+        /// started (kicking new joiners, spawning nobody on the next
+        /// SpawnAll()), and AffinitySelectionService would still show every
+        /// connection as ready (skipping the picker entirely on the next
+        /// AffinitySelect screen).
+        /// </summary>
+        public void RequestReturnToLobby()
+        {
+            if (!InstanceFinder.IsServerStarted)
+                return;
+
+            // Despawn players explicitly rather than relying on the scene
+            // unload below to clean them up. FishNet's graceful "move spawned
+            // objects out before the scene unloads" path
+            // (SceneManager.MoveClientHostObjects) never actually runs for a
+            // root-level NetworkObject in the installed FishNet version - its
+            // own root-check continues unconditionally, since Transform.root
+            // returns the transform itself, never null, for something that IS
+            // already a root. Left alone, players would go through FishNet's
+            // "unexpectedly destroyed" cleanup path instead (which does still
+            // fire OnStopServer/OnDestroy correctly, so nothing here is broken
+            // by skipping this step - it's just untested territory in this
+            // project, and despawning explicitly is one small method).
+            PlayerSpawner.Instance?.ServerDespawnAll();
+
+            // Order matters: PlayerSpawner's _hasGameStarted must already be
+            // false before AffinitySelectionService clears _ready, since a
+            // ready-state change there can call back into
+            // PlayerSpawner.ServerSpawnIfReady.
+            PlayerSpawner.Instance?.ServerResetForNewMatch();
+            AffinitySelectionService.Instance?.ServerResetForNewMatch();
+
+            _hasEnteredAffinitySelect = false;
+            _hasEnteredGame = false;
+            _hasUnloadedAffinitySelect = false;
+
+            // Belt and braces against a stale subscription double-spawning on
+            // the next RequestEnterGame - same guard HandleServerConnectionState
+            // already applies for a full server stop.
+            if (InstanceFinder.SceneManager != null)
+                InstanceFinder.SceneManager.OnLoadEnd -= HandleGameSceneLoaded;
+
+            SceneLoadData data = new SceneLoadData(_lobbySceneName) { ReplaceScenes = ReplaceOption.All };
+            data.PreferredActiveScene = new PreferredScene(new SceneLookupData(_lobbySceneName));
+            InstanceFinder.SceneManager.LoadGlobalScenes(data);
         }
 
         /// <summary>

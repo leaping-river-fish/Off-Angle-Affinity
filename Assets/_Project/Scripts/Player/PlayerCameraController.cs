@@ -77,6 +77,7 @@ namespace OffAngle.Player
         private float _fovTarget;
         private float _rollTarget;
         private float _defaultFov;
+        private float _defaultRoll;
 
         // Accumulated mouse delta since last Update (flushed each frame)
         private Vector2 _pendingDelta;
@@ -127,8 +128,14 @@ namespace OffAngle.Player
             _defaultFov = _camera != null ? _camera.fieldOfView : 80f;
             _fov = _defaultFov;
             _fovTarget = _defaultFov;
-            _roll = 0f;
-            _rollTarget = 0f;
+
+            // Captured once, before any wall-run tilt (SetRollTarget) has ever
+            // run, so it reflects only whatever Z a designer authored on the
+            // pitch target (usually 0) - see OnEnable for why this must not be
+            // re-read from the live transform on every enable.
+            _defaultRoll = NormalizeAngle(_pitchTarget.localEulerAngles.z);
+            _roll = _defaultRoll;
+            _rollTarget = _defaultRoll;
         }
 
         private void OnEnable()
@@ -138,20 +145,33 @@ namespace OffAngle.Player
 
             // Seed angles from current transforms to avoid a snap on enable
             _yaw   = _playerRoot.eulerAngles.y;
-            _pitch = _pitchTarget.localEulerAngles.x;
-            // Unity stores pitch in 0–360; normalise to -180–180 for clamping
-            if (_pitch > 180f) _pitch -= 360f;
+            _pitch = NormalizeAngle(_pitchTarget.localEulerAngles.x);
 
-            // Preserve any authored local Z as starting roll (usually 0)
-            _roll = _pitchTarget.localEulerAngles.z;
-            if (_roll > 180f) _roll -= 360f;
-            _rollTarget = _roll;
+            // Unlike pitch/yaw, roll has no legitimate external driver - it's
+            // wall-run dutch tilt, entirely owned by this component via
+            // SetRollTarget (see class header). Reading the live value back
+            // here would reinstate whatever tilt was frozen in place when this
+            // GameObject got disabled mid wall-run (e.g. on death), leaving it
+            // stuck post-respawn since Update() stops applying MoveTowards
+            // while disabled - same failure mode as the FOV reset below.
+            _roll = _defaultRoll;
+            _rollTarget = _defaultRoll;
 
+            // Unlike pitch/yaw, FOV has no legitimate external driver - this
+            // component is the sole owner of Camera.fieldOfView (see class
+            // header). Reading the live value back here would just reinstate
+            // whatever ability/ADS FOV was frozen in place when this GameObject
+            // got disabled (e.g. on death), leaving it stuck post-respawn since
+            // Update() stops applying MoveTowards while disabled.
+            _fov = _defaultFov;
+            _fovTarget = _defaultFov;
             if (_camera != null)
-            {
-                _fov = _camera.fieldOfView;
-                _fovTarget = _fov;
-            }
+                _camera.fieldOfView = _fov;
+
+            // Apply the reset pitch/roll immediately so the first rendered
+            // frame doesn't show one frame of the stale pre-disable rotation
+            // before Update() ticks.
+            ApplyPitchRollRotation();
 
             _inputReader.LookEvent += OnLook;
         }
@@ -248,6 +268,14 @@ namespace OffAngle.Player
             // Pitch + wall-run roll on the shared pivot so viewmodel tilts too
             // when _pitchTarget is Camera Pivot.
             _pitchTarget.localRotation = Quaternion.Euler(_pitch, 0f, _roll);
+        }
+
+        // Unity stores Euler angles in 0-360; normalise to -180-180 so clamping
+        // (pitch) and delta comparisons behave as expected.
+        private static float NormalizeAngle(float degrees)
+        {
+            if (degrees > 180f) degrees -= 360f;
+            return degrees;
         }
     }
 }

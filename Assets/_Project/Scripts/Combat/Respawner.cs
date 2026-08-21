@@ -105,6 +105,16 @@ namespace OffAngle.Combat
         {
             yield return new WaitForSeconds(_respawnDelay);
 
+            // The match can end while this player is mid-countdown. Without this,
+            // they would pop back into gameplay (input/camera/HUD re-enabled via
+            // ServerSetAlive -> RpcOnRespawned) underneath the win/lose screen a
+            // few seconds after everyone else was already frozen by it.
+            if (MatchManager.Instance != null && MatchManager.Instance.HasEnded)
+            {
+                _respawnRoutine = null;
+                yield break;
+            }
+
             if (_teleportOnRespawn)
             {
                 Transform spawn = PlayerSpawner.Instance != null
