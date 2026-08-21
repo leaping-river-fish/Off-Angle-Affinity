@@ -61,6 +61,13 @@ namespace OffAngle.Core
         public event Action GrappleStarted;
         public event Action GrappleCanceled;
 
+        // Scoreboard is hold-to-view, same shape as Grapple. Deliberately kept
+        // enabled during the Dead state (see DisableAllMaps) so a respawning
+        // player can still check it; Menu/Paused still disable it for free via
+        // DisablePlayerMap's generic foreach.
+        public event Action ScoreboardHoldStarted;
+        public event Action ScoreboardHoldCanceled;
+
         // CrouchSlide fires a single event on press. The active GroundedState
         // resolves whether to enter CrouchingState or SlidingState based on
         // ctx.Velocity.magnitude vs Settings.SlideEntrySpeedThreshold.
@@ -104,6 +111,7 @@ namespace OffAngle.Core
         private InputAction _sidearm;
         private InputAction _openLoadoutMenu;
         private InputAction _pause;
+        private InputAction _scoreboard;
 
         // UI map actions
         private InputAction _uiCloseMenu;
@@ -172,6 +180,7 @@ namespace OffAngle.Core
             _sidearm      = map.FindAction("Sidearm",      throwIfNotFound: true);
             _openLoadoutMenu = map.FindAction("WeaponMenu", throwIfNotFound: true);
             _pause           = map.FindAction("Pause",      throwIfNotFound: true);
+            _scoreboard      = map.FindAction("Scoreboard", throwIfNotFound: true);
 
             // UI map actions
             var uiMapActions = _uiMap;
@@ -214,6 +223,8 @@ namespace OffAngle.Core
             _sidearm.performed      += OnSelectWeaponCategory;
             _openLoadoutMenu.performed += OnOpenLoadoutMenu;
             _pause.performed        += OnPauseToggle;
+            _scoreboard.performed   += OnScoreboardPerformed;
+            _scoreboard.canceled    += OnScoreboardCanceled;
 
             // UI map close menu (if it exists)
             if (_uiCloseMenu != null)
@@ -248,6 +259,8 @@ namespace OffAngle.Core
             _sidearm.performed      -= OnSelectWeaponCategory;
             _openLoadoutMenu.performed -= OnOpenLoadoutMenu;
             _pause.performed        -= OnPauseToggle;
+            _scoreboard.performed   -= OnScoreboardPerformed;
+            _scoreboard.canceled    -= OnScoreboardCanceled;
 
             // UI map close menu (if it exists)
             if (_uiCloseMenu != null)
@@ -352,6 +365,12 @@ namespace OffAngle.Core
         private void OnPauseToggle(InputAction.CallbackContext ctx)
             => PauseToggleStarted?.Invoke();
 
+        private void OnScoreboardPerformed(InputAction.CallbackContext ctx)
+            => ScoreboardHoldStarted?.Invoke();
+
+        private void OnScoreboardCanceled(InputAction.CallbackContext ctx)
+            => ScoreboardHoldCanceled?.Invoke();
+
         // ------------------------------------------------------------------
         // Action map control (called by PlayerInputStateController)
         // ------------------------------------------------------------------
@@ -402,11 +421,30 @@ namespace OffAngle.Core
                 _uiMap.Disable();
         }
 
-        /// <summary>Disable all action maps (used for death state or full input lockout).</summary>
+        /// <summary>
+        /// Disable all action maps (used for death state or full input lockout),
+        /// except Scoreboard, which stays live so a respawning player can still
+        /// check standings. Unlike DisablePlayerMap's exceptions (WeaponMenu,
+        /// Pause - both still fully disabled here, unchanged from before), this
+        /// is the ONE deliberate carve-out for the Dead state specifically.
+        /// </summary>
         public void DisableAllMaps()
         {
             if (_playerMap != null)
-                _playerMap.Disable();
+            {
+                if (!_playerMap.enabled)
+                    _playerMap.Enable();
+
+                foreach (InputAction action in _playerMap.actions)
+                {
+                    if (action == _scoreboard)
+                        continue;
+                    action.Disable();
+                }
+
+                _scoreboard?.Enable();
+            }
+
             DisableUIMap();
         }
 

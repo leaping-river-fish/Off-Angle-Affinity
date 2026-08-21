@@ -204,12 +204,65 @@ namespace OffAngle.Networking
             if (args.ConnectionState != LocalConnectionState.Stopped)
                 return;
 
+            ClearMatchState();
+        }
+
+        // Shared by a full server stop (nobody is connected by the time that
+        // runs, so _pendingConnections is correctly left empty) and
+        // ServerResetForNewMatch (a return-to-lobby mid-session, where every
+        // still-active connection gets re-queued afterward) - the per-match
+        // state itself is cleared identically either way.
+        private void ClearMatchState()
+        {
             _hasGameStarted = false;
             _pendingConnections.Clear();
 
             // Point at Transforms in the now-unloaded Game scene.
             _spawnPoints = null;
             _gameScene = default;
+        }
+
+        /// <summary>
+        /// Server-only. Despawns every connection's player object. Called by
+        /// GameFlowController.RequestReturnToLobby before the Game scene
+        /// unloads - see that method's comment for why this isn't just left
+        /// to the unload itself.
+        /// </summary>
+        public void ServerDespawnAll()
+        {
+            if (!InstanceFinder.IsServerStarted) return;
+
+            // Snapshot first: despawning mutates the same connection/object
+            // bookkeeping this loop would otherwise be iterating live.
+            List<NetworkObject> playerObjects = new List<NetworkObject>();
+            foreach (NetworkConnection conn in InstanceFinder.ServerManager.Clients.Values)
+            {
+                if (conn.FirstObject != null)
+                    playerObjects.Add(conn.FirstObject);
+            }
+
+            foreach (NetworkObject nob in playerObjects)
+                InstanceFinder.ServerManager.Despawn(nob);
+        }
+
+        /// <summary>
+        /// Server-only. Resets this spawner for a new match without a full
+        /// server stop - called by GameFlowController.RequestReturnToLobby.
+        /// Unlike OnServerConnectionState's reset, every currently-active
+        /// connection is re-queued afterward so the next SpawnAll() actually
+        /// spawns them instead of iterating an empty queue.
+        /// </summary>
+        public void ServerResetForNewMatch()
+        {
+            if (!InstanceFinder.IsServerStarted) return;
+
+            ClearMatchState();
+
+            foreach (NetworkConnection conn in InstanceFinder.ServerManager.Clients.Values)
+            {
+                if (conn.IsActive)
+                    _pendingConnections.Add(conn);
+            }
         }
 
         private void OnRemoteConnectionState(NetworkConnection conn, RemoteConnectionStateArgs args)
