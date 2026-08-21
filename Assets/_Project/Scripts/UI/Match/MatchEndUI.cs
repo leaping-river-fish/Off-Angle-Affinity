@@ -129,6 +129,8 @@ namespace OffAngle.UI.Match
                 _resultText.text = won ? "Victory" : "Defeat";
             }
 
+            EnsurePanelScale();
+
             if (_panel != null)
                 _panel.SetActive(true);
 
@@ -164,6 +166,25 @@ namespace OffAngle.UI.Match
                     Destroy(row.gameObject);
             }
             _rows.Clear();
+        }
+
+        // Same fix PlayerInputStateController.EnsureCombatHudScales() applies
+        // to the combat HUD root - a RectTransform nested under an
+        // initially-inactive ancestor (this panel starts inactive, and has
+        // its own nested Canvas for the sort-order override) can get its
+        // localScale baked to zero by Unity, silently rendering nothing even
+        // once SetActive(true) runs right after. Repaired just before that.
+        private void EnsurePanelScale()
+        {
+            if (_panel == null) return;
+
+            RectTransform[] rects = _panel.GetComponentsInChildren<RectTransform>(true);
+            for (int i = 0; i < rects.Length; i++)
+            {
+                RectTransform rt = rects[i];
+                if (rt.localScale == Vector3.zero)
+                    rt.localScale = Vector3.one;
+            }
         }
 
         // ------------------------------------------------------------------
