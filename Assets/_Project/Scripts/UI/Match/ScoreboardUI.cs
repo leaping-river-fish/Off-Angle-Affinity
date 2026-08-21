@@ -103,6 +103,7 @@ namespace OffAngle.UI.Match
 
         private void Show()
         {
+            EnsureScales();
             RebuildRows();
             SetVisible(true);
         }
@@ -167,6 +168,23 @@ namespace OffAngle.UI.Match
         // rebuilding wholesale is simpler and, at this game's player counts,
         // cheap enough not to need incremental patching.
         private void HandleAnyKillsChanged(int _) => RebuildRows();
+
+        // Same fix PlayerInputStateController.EnsureCombatHudScales() applies
+        // to the combat HUD root - a RectTransform nested under an
+        // initially-hidden ancestor can get its localScale baked to zero by
+        // Unity. This panel has no nested Canvas of its own (unlike
+        // MatchEndUI's), so it's less exposed to that specific trigger, but
+        // the check is cheap enough to run defensively on every Show() too.
+        private void EnsureScales()
+        {
+            RectTransform[] rects = GetComponentsInChildren<RectTransform>(true);
+            for (int i = 0; i < rects.Length; i++)
+            {
+                RectTransform rt = rects[i];
+                if (rt.localScale == Vector3.zero)
+                    rt.localScale = Vector3.one;
+            }
+        }
 
         private static string LabelFor(KillCount kc)
         {
