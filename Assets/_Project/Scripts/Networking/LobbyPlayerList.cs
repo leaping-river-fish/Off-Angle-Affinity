@@ -9,8 +9,9 @@
 //
 //   ConnectionIds is the source of truth a future lobby UI binds to directly
 //   (subscribe to ConnectionIds.OnChange, or read it at OnEnable to populate
-//   an initial scroll view). LabelFor() is a placeholder formatter -- swap it
-//   out once the project has real player display names.
+//   an initial scroll view). LabelFor() checks PlayerNameRegistry for a real
+//   chosen name first, falling back to the "Player #" placeholder for a
+//   connection that never submitted one.
 //
 // MANUAL SETUP:
 //   1. Empty GameObject (e.g. "Lobby State") in the same scene as
@@ -45,8 +46,9 @@ namespace OffAngle.Networking
         /// </summary>
         public static event Action InstanceReady;
 
-        /// <summary>Placeholder label until the project has real player display names.</summary>
-        public static string LabelFor(int connectionId) => $"Player {connectionId}";
+        /// <summary>The player's chosen display name, or a "Player #" placeholder if they never set one.</summary>
+        public static string LabelFor(int connectionId) =>
+            PlayerNameRegistry.TryGetName(connectionId, out string name) ? name : $"Player {connectionId}";
 
         private void Awake()
         {
