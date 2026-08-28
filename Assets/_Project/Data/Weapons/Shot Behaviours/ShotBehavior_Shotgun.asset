@@ -16,6 +16,6 @@ MonoBehaviour:
   PelletDamage: 12
   PelletHeadshotDamage: 18
   SpreadPattern: 0
-  HorizontalSpread: 8
-  VerticalSpread: 8
+  HorizontalSpread: 6
+  VerticalSpread: 6
   FixedPattern: []
