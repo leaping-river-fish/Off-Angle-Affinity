@@ -65,14 +65,14 @@ namespace OffAngle.Weapons
 
             Projectile projectile = spawned.GetComponent<Projectile>();
             if (projectile != null)
-                projectile.ServerInitialize(ctx.Attacker, ctx.AttackerRoot, data, this, direction * Speed);
+                projectile.ServerInitialize(ctx.Attacker, ctx.AttackerRoot, data, this, direction * Speed, ctx.ShotId, ctx.FireTick);
         }
 
         private Vector3 ComputeAimCorrectedDirection(ShotContext ctx, Vector3 muzzle)
         {
             float referenceDistance = ctx.Data.Range > 0f ? ctx.Data.Range : 500f;
 
-            Vector3 aimPoint = Physics.Raycast(ctx.Origin, ctx.Direction, out RaycastHit hit, referenceDistance, ctx.Data.HitMask, QueryTriggerInteraction.Ignore)
+            Vector3 aimPoint = HitResolution.TryRaycastIgnoreSelf(ctx.Origin, ctx.Direction, referenceDistance, ctx.Data.HitMask, ctx.AttackerRoot, out RaycastHit hit)
                 ? hit.point
                 : ctx.Origin + ctx.Direction * referenceDistance;
 

@@ -250,27 +250,6 @@ namespace OffAngle.Networking
         }
 
         // ------------------------------------------------------------------
-        // Temporary diagnostic — remote observers reportedly never see a
-        // player's Y position rise during wall-run/grapple. Logs this
-        // instance's own transform.position.y every ~0.5s, tagged with
-        // whether THIS machine owns it, so a repro's two consoles (the
-        // grappling/wall-running player's own log vs. an observer's log for
-        // that same NetworkObject) can be compared directly: if the owner's
-        // own Y climbs but the observer's copy never does, the sync itself
-        // is broken; if neither climbs, the movement code itself isn't
-        // producing the Y change on this build. Safe to remove once the
-        // root cause is confirmed.
-        // ------------------------------------------------------------------
-        private float _nextPositionLogTime;
-
-        private void Update()
-        {
-            if (Time.time < _nextPositionLogTime) return;
-            _nextPositionLogTime = Time.time + 0.5f;
-            Debug.Log($"[{nameof(NetworkPlayerController)}] {name} owner={base.IsOwner} Y={transform.position.y:F2}");
-        }
-
-        // ------------------------------------------------------------------
         // Editor sanity check
         // ------------------------------------------------------------------
 

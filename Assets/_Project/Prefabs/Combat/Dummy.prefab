@@ -12,10 +12,12 @@ GameObject:
   - component: {fileID: 914804219394753357}
   - component: {fileID: 8274791092101624439}
   - component: {fileID: 1128995274134979179}
+  - component: {fileID: 934881106372866973}
   - component: {fileID: 456234691227885247}
   - component: {fileID: 635685549306009992}
   - component: {fileID: 735558586019847789}
   - component: {fileID: 4303182265510470743}
+  - component: {fileID: 205314218737817251}
   m_Layer: 0
   m_Name: Dummy
   m_TagString: Untagged
@@ -120,6 +122,33 @@ CapsuleCollider:
   m_Height: 1.4
   m_Direction: 1
   m_Center: {x: 0, y: -0.2, z: 0}
+--- !u!54 &934881106372866973
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1320360808391995612}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 1
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
 --- !u!114 &456234691227885247
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -236,6 +265,26 @@ MonoBehaviour:
   _restoreFullAmmo: 1
   _shield: {fileID: 735558586019847789}
   _lifecycle: {fileID: 0}
+--- !u!114 &205314218737817251
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1320360808391995612}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d99a91f7541471548adff0e6b0fc5a81, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Combat.HitboxHistory
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 456234691227885247}
+  _networkObjectCache: {fileID: 0}
+  _colliders:
+  - {fileID: 6670605121644998195}
+  - {fileID: 5984565349230505048}
+  _historySeconds: 0.4
+  _debugLogIntervalSeconds: 0
 --- !u!1 &3921646724566556984
 GameObject:
   m_ObjectHideFlags: 0

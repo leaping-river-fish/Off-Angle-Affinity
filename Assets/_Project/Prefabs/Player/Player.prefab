@@ -1500,6 +1500,7 @@ GameObject:
   - component: {fileID: 7341918409488905103}
   - component: {fileID: 9185218170202234343}
   - component: {fileID: 6322695747065497937}
+  - component: {fileID: 2319144375467705653}
   m_Layer: 8
   m_Name: Player
   m_TagString: Untagged
@@ -1644,7 +1645,7 @@ MonoBehaviour:
     WallJumpOutwardForce: 11
     WallJumpUpwardForce: 9
     WallVerticalMoveSpeed: 4
-    GrappleMaxPullSpeed: 20
+    GrappleMaxPullSpeed: 30
     GrappleReleaseDistance: 2
     GrappleMaxDuration: 3
     GrappleGravityScale: 0.15
@@ -1855,6 +1856,9 @@ MonoBehaviour:
   _serverFireRateBurstAllowance: 3
   _muzzleClearanceDistance: 0.6
   _tracerPrefab: {fileID: 2952079945757915, guid: c18e52cbe5e74825a3f5132645a2701e, type: 3}
+  _ownerHandoffSnapDistance: 1
+  _ownerHandoffMaxBlendDistance: 12
+  _ownerHandoffBlendDuration: 0.1
 --- !u!114 &4848753837396730076
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2140,6 +2144,26 @@ MonoBehaviour:
   _componentIndexCache: 255
   _addedNetworkObject: {fileID: 6608746267949662875}
   _networkObjectCache: {fileID: 0}
+--- !u!114 &2319144375467705653
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4475511576505607171}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d99a91f7541471548adff0e6b0fc5a81, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Combat.HitboxHistory
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 6608746267949662875}
+  _networkObjectCache: {fileID: 0}
+  _colliders:
+  - {fileID: 8824692802582119726}
+  - {fileID: 6600096701690782446}
+  _historySeconds: 0.4
+  _debugLogIntervalSeconds: 0
 --- !u!1 &4500626514475088747
 GameObject:
   m_ObjectHideFlags: 0

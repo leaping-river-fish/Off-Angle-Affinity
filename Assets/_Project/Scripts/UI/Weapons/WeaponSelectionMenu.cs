@@ -55,6 +55,11 @@ namespace OffAngle.UI.Weapons
         private readonly List<WeaponChoiceUI> _choices = new();
         private readonly Dictionary<WeaponCategory, Transform> _categoryContainers = new();
 
+        // Button.onClick + IPointerClickHandler can both fire, and a physical
+        // double-click sends a second Chosen before the first equip settles.
+        // Ignore extra picks until this clears in LateUpdate.
+        private bool _selectionBusy;
+
         // ------------------------------------------------------------------
         // Lifecycle
         // ------------------------------------------------------------------
@@ -288,8 +293,14 @@ namespace OffAngle.UI.Weapons
         // Selection
         // ------------------------------------------------------------------
 
+        private void LateUpdate()
+        {
+            _selectionBusy = false;
+        }
+
         private void HandleChosen(WeaponDefinition definition)
         {
+            if (_selectionBusy) return;
             if (definition == null || definition.Category == null) return;
 
             if (LoadoutManager.Instance == null)
@@ -298,6 +309,10 @@ namespace OffAngle.UI.Weapons
                 return;
             }
 
+            if (LoadoutManager.Instance.GetSelected(definition.Category) == definition)
+                return;
+
+            _selectionBusy = true;
             LoadoutManager.Instance.SetSelected(definition.Category, definition);
             RefreshHighlights();
         }

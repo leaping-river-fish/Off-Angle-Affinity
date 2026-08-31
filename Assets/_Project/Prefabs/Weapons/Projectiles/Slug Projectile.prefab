@@ -101,6 +101,7 @@ GameObject:
   - component: {fileID: 7120456719034822156}
   - component: {fileID: 6120456719034822156}
   - component: {fileID: 5120456719034822156}
+  - component: {fileID: 1228461033925636638}
   - component: {fileID: 4120456719034822156}
   - component: {fileID: 2120456719034822156}
   - component: {fileID: 1704842109605755485}
@@ -230,6 +231,23 @@ MonoBehaviour:
     X: 0
     Y: 0
     Z: 0
+--- !u!114 &1228461033925636638
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8120456719034822156}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e2b597e1828355a4d994a69cbb11ef85, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Component.Ownership.PredictedSpawn
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 6120456719034822156}
+  _networkObjectCache: {fileID: 0}
+  _allowSpawning: 1
+  _allowDespawning: 1
 --- !u!54 &4120456719034822156
 Rigidbody:
   m_ObjectHideFlags: 0

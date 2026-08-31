@@ -76,5 +76,42 @@ namespace OffAngle.Weapons
         {
             return TryResolveAndApply(hit.collider, hit.point, hit.normal, attackerRoot, attacker, weapon, damage, headshotDamage, out appliedInfo);
         }
+
+        /// <summary>
+        /// Raycasts along origin/direction, skipping the attacker's root (body + head).
+        /// Use this instead of Physics.Raycast so a stale origin behind a fast-moving
+        /// shooter does not eat the shot. Sorted nearest-first, same as projectile sweeps.
+        /// </summary>
+        public static bool TryRaycastIgnoreSelf(
+            Vector3 origin, 
+            Vector3 direction,
+            float range,
+            LayerMask mask,
+            Transform attackerRoot,
+            out RaycastHit hit)
+        {
+            hit = default;
+            RaycastHit[] hits = Physics.RaycastAll(
+                origin,
+                direction,
+                range,
+                mask,
+                QueryTriggerInteraction.Ignore);
+            
+            if (hits == null || hits.Length == 0) return false;
+
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            for (int i = 0; i < hits.Length; i++)
+            {
+                RaycastHit candidate = hits[i];
+                if (attackerRoot != null && candidate.collider != null && candidate.collider.transform.root == attackerRoot) continue;
+
+                hit = candidate;
+                return true;
+            }
+
+            return false;
+        }
     }
 }

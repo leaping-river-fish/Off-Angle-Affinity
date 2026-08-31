@@ -94,6 +94,12 @@ namespace OffAngle.Weapons
                 return;
             }
 
+            // Same pick again (typical double-click) must not notify listeners.
+            // PlayerWeaponEquipper destroys and rebuilds the Gun on every
+            // SelectionChanged, which leaves the equipped instance in a broken state.
+            if (_selected.TryGetValue(category, out WeaponDefinition current) && current == definition)
+                return;
+
             _selected[category] = definition;
             SelectionChanged?.Invoke(category, definition);
         }

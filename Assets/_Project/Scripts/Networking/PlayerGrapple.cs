@@ -62,6 +62,7 @@
 // =============================================================================
 
 using System;
+using System.Collections.Generic;
 using FishNet;
 using FishNet.Connection;
 using FishNet.Object;
@@ -129,6 +130,13 @@ namespace OffAngle.Networking
         // Server-only - the hook currently owned by this player, if any.
         private GrappleHook _activeHook;
 
+        private NetworkObject _ownerAuthoritativeHook;
+
+        private ushort _ownerNextCastId = 1;
+        private ushort _ownerPredictedCastId;
+        private GameObject _ownerPredictedHook;
+        private float _ownerPredictedAt;
+
         public bool IsGrappling => _state == GrappleState.Pulling || _state == GrappleState.Holding;
         public bool IsHookInFlight => _state == GrappleState.HookInFlight;
 
@@ -185,8 +193,7 @@ namespace OffAngle.Networking
         private void HandleGrappleStarted()
         {
             // Gate input by state: only allow grappling during Gameplay
-            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay)
-                return;
+            if (_stateController != null && _stateController.CurrentState != PlayerInputState.Gameplay) return;
 
             if (_state != GrappleState.Idle) return;
             if (Time.time < _ownerNextAllowedFireTime) return;
@@ -197,7 +204,15 @@ namespace OffAngle.Networking
 
             GetAimRay(out Vector3 origin, out Vector3 direction);
             _state = GrappleState.HookInFlight;
-            CmdFireGrapple(origin, direction);
+
+            ushort castId = _ownerNextCastId++;
+            if (_ownerNextCastId == 0)
+            {
+                _ownerNextCastId = 1;
+            }
+
+            OwnerPredictHook(origin, direction, castId);
+            CmdFireGrapple(origin, direction, castId);
         }
 
         private void HandleGrappleCanceled()
@@ -243,6 +258,7 @@ namespace OffAngle.Networking
             {
                 case GrappleState.HookInFlight:
                     _state = GrappleState.Idle;
+                    OwnerClearPredictedHook(raiseEnded: true);
                     CmdCancelInFlightHook();
                     break;
 
@@ -258,6 +274,41 @@ namespace OffAngle.Networking
             origin = _cameraTransform != null ? _cameraTransform.position : transform.position;
             direction = _cameraTransform != null ? _cameraTransform.forward : transform.forward;
             origin += direction * _muzzleClearanceDistance;
+        }
+
+        private void OwnerPredictHook(Vector3 origin, Vector3 direction, ushort castId)
+        {
+            if (!base.IsOwner || _hookPrefab == null) return;
+
+            OwnerClearPredictedHook(raiseEnded: false);
+
+            GameObject predicted = Instantiate(
+                _hookPrefab.gameObject,
+                origin,
+                Quaternion.LookRotation(direction, Vector3.up));
+
+            // Never let FishNet treat this as a networked object.
+            if (predicted.TryGetComponent<NetworkObject>(out NetworkObject nob)) 
+            {
+                nob.enabled = false;
+            }
+
+            if (!predicted.TryGetComponent<GrappleHook>(out GrappleHook hook))
+            {
+                Destroy(predicted);
+                return;
+            }
+
+            float lifetime = Mathf.Max(0.05f, _maxRange / Mathf.Max(0.01f, _hookSpeed));
+            hook.ClientInitializePredicted(transform.root, direction * _hookSpeed, _useGravity, lifetime);
+
+            _ownerPredictedHook = predicted;
+            _ownerPredictedCastId = castId;
+            _ownerPredictedAt = Time.time;
+
+            // Rope currently only starts from HookFired (authoritative OnStartClient).
+            // Raise it now so the owner sees the tether on press.
+            GrappleEvents.RaiseHookFired(base.NetworkObject, predicted.transform, origin, direction);
         }
 
         // ------------------------------------------------------------------
@@ -294,9 +345,13 @@ namespace OffAngle.Networking
             if (_state != GrappleState.HookInFlight || _stateMachine == null || !_stateMachine.CanStartMovementAction())
             {
                 _state = GrappleState.Idle;
+                OwnerClearPredictedHook(raiseEnded: true);
                 CmdReleaseGrapple();
                 return;
             }
+
+            GrappleEvents.RaiseHookAttached(base.NetworkObject, point, normal);
+            OwnerClearPredictedHook(raiseEnded: false, showAuthoritative: true);
 
             // Classified once here and consulted later in HandlePullExited -
             // see this file's GROUND ANCHORS header note.
@@ -307,11 +362,98 @@ namespace OffAngle.Networking
         }
 
         [TargetRpc]
+        private void TargetRpcHookRejected(NetworkConnection conn, ushort castId)
+        {
+            if (_ownerPredictedCastId == castId)
+            {
+                OwnerClearPredictedHook(raiseEnded: true);
+            }
+
+            if (_state == GrappleState.HookInFlight)
+            {
+                _state = GrappleState.Idle;
+            }
+        }
+
+        [TargetRpc]
         private void TargetRpcHookMissed(NetworkConnection conn)
         {
+            OwnerClearPredictedHook(raiseEnded: false); // RpcMissed already raised HookMissed on observers
+            
             if (_state == GrappleState.HookInFlight)
+            {
                 _state = GrappleState.Idle;
+            }
         }
+
+        /// <returns>True if the owner is showing a predicted visual (skip HookFired on this spawn).</returns>
+        public bool ReconcilePredictedHook(ushort castId, NetworkObject authoritative)
+        {
+            if (!base.IsOwner) return false;
+            if (castId == 0 || castId != _ownerPredictedCastId) return false;
+            if (_ownerPredictedHook == null || authoritative == null) return false;
+
+            _ownerAuthoritativeHook = authoritative;
+            OwnerSetHookRenderers(authoritative.gameObject, false);
+            return true;
+        }
+
+        private void Update()
+        {
+            if (!base.IsOwner) return;
+            CleanupStalePrediction();
+        }
+
+        private static void OwnerSetHookRenderers(GameObject root, bool enabled)
+        {
+            if (root == null) return;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].enabled = enabled;
+            }
+        }
+
+        /// <param name="showAuthoritative">
+        /// True on attach: reveal the real hook (frozen in the wall).
+        /// False on miss/reject/cancel: the networked object is gone or about to despawn.
+        /// </param>
+        private void OwnerClearPredictedHook(bool raiseEnded, bool showAuthoritative = false)
+        {
+            if (_ownerPredictedHook != null)
+            {
+                Destroy(_ownerPredictedHook);
+                _ownerPredictedHook = null;
+            }
+
+            _ownerPredictedCastId = 0;
+
+            if (showAuthoritative && _ownerAuthoritativeHook != null)
+            {
+                OwnerSetHookRenderers(_ownerAuthoritativeHook.gameObject, true);
+            }
+
+            _ownerAuthoritativeHook = null;
+
+            if (raiseEnded)
+            {
+                GrappleEvents.RaiseHookMissed(base.NetworkObject);
+            }
+        }
+
+        private void CleanupStalePrediction()
+        {
+            if (_ownerPredictedHook == null) return;
+            if (Time.time - _ownerPredictedAt <= 2f) return;
+
+            OwnerClearPredictedHook(raiseEnded: true);
+            if (_state == GrappleState.HookInFlight)
+            {
+                _state = GrappleState.Idle;
+            }
+        }
+
+
 
         /// <summary>
         /// GrapplePullDriver's onExit callback - fires exactly once per pull
@@ -355,36 +497,39 @@ namespace OffAngle.Networking
         // ------------------------------------------------------------------
 
         [ServerRpc]
-        private void CmdFireGrapple(Vector3 origin, Vector3 direction)
+        private void CmdFireGrapple(Vector3 origin, Vector3 direction, ushort castId)
         {
-            if (_hookPrefab == null) return;
-            if (_lifecycle != null && _lifecycle.IsDead) return;
-
-            // Defense in depth: the owner already gates one-hook-at-a-time via
-            // _state, but a modified client could still spam this RPC.
-            if (_activeHook != null) return;
+            if (_hookPrefab == null || (_lifecycle != null && _lifecycle.IsDead) || _activeHook != null)
+            {
+                TargetRpcHookRejected(base.Owner, castId);
+                return;
+            }
 
             float now = Time.time;
-            if (now < _serverNextAllowedFireTime) return;
+            if (now < _serverNextAllowedFireTime) 
+            {
+                TargetRpcHookRejected(base.Owner, castId);
+                return;
+            }
             _serverNextAllowedFireTime = now + _cooldown * (1f - _serverCooldownGrace);
 
-            if (direction.sqrMagnitude < 0.0001f) return;
+            if (direction.sqrMagnitude < 0.0001f)
+            {
+                TargetRpcHookRejected(base.Owner, castId);
+                return;
+            }
             direction.Normalize();
 
             NetworkObject instance = Instantiate(_hookPrefab.NetworkObject, origin, Quaternion.LookRotation(direction, Vector3.up));
-
             GrappleHook hook = instance.GetComponent<GrappleHook>();
             if (hook == null)
             {
                 Destroy(instance.gameObject); // Not yet spawned - plain Destroy, not Despawn().
+                TargetRpcHookRejected(base.Owner, castId);
                 return;
             }
 
-            // MUST happen before Spawn() - see GrappleHook.ServerSetOwner's
-            // doc comment for why setting this after Spawn() silently broke
-            // the rope tracer's owner-identification for every observer,
-            // including the firing player's own client.
-            hook.ServerSetOwner(base.NetworkObject);
+            hook.ServerSetOwner(base.NetworkObject, castId);
             InstanceFinder.ServerManager.Spawn(instance, base.Owner);
 
             _activeHook = hook;

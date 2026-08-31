@@ -24,7 +24,7 @@ namespace OffAngle.Weapons
         {
             GunData data = ctx.Data;
 
-            bool didHit = Physics.Raycast(ctx.Origin, ctx.Direction, out RaycastHit hit, data.Range, data.HitMask, QueryTriggerInteraction.Ignore);
+            bool didHit = HitResolution.TryRaycastIgnoreSelf(ctx.Origin, ctx.Direction, data.Range, data.HitMask, ctx.AttackerRoot, out RaycastHit hit);
             
 
             // Tracer fires regardless of hit/miss - bullets are visible even when they go nowhere.

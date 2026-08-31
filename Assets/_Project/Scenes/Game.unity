@@ -6619,7 +6619,7 @@ MonoBehaviour:
   _componentIndexCache: 255
   _addedNetworkObject: {fileID: 1571187097}
   _networkObjectCache: {fileID: 0}
-  _killsToWin: 2
+  _killsToWin: 30
 --- !u!114 &1571187097
 MonoBehaviour:
   m_ObjectHideFlags: 0

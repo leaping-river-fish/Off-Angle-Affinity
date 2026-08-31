@@ -33,5 +33,12 @@ namespace OffAngle.Weapons
         /// Returns null off the server or if the prefab is unassigned.
         /// </summary>
         NetworkObject SpawnProjectile(NetworkObject prefab, Vector3 position, Quaternion rotation);
+
+        /// <summary>
+        /// Owner-only. Spawns a predicted projectile using FishNet's PredictedSpawn system.
+        /// The predicted projectile is immediately visible to the owner while awaiting
+        /// server confirmation. Returns null if not owner or if prefab is unassigned.
+        /// </summary>
+        NetworkObject SpawnPredictedProjectile(NetworkObject prefab, Vector3 position, Quaternion rotation, ushort shotId);
     }
 }

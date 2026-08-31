@@ -35,6 +35,7 @@ using FishNet;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using OffAngle.Combat;
+using OffAngle.Networking;
 using UnityEngine;
 
 namespace OffAngle.Weapons
@@ -46,6 +47,11 @@ namespace OffAngle.Weapons
         // shooter for future VFX/kill-feed hooks (e.g. ShotEvents.ProjectileSpawned).
         // FishNet requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<NetworkObject> _attackerSync = new SyncVar<NetworkObject>();
+        private readonly SyncVar<ushort> _shotIdSync = new SyncVar<ushort>();
+
+        [Header("Networking")]
+        [Tooltip("Maximum seconds of missed flight to simulate from the owner's FireTick when this projectile spawns on the server. Caps cheat cost and SphereCast work. 0.35 covers typical ~100ms RTT with margin.")]
+        [SerializeField, Min(0f)] private float _maxCatchUpSeconds = 0.35f;
 
         private Rigidbody _rigidbody;
         private float _castRadius;
@@ -58,6 +64,10 @@ namespace OffAngle.Weapons
         private bool _initialized;
         private bool _impactResolved;
         private Vector3 _previousPosition;
+        private uint _fireTick;
+
+        // Owner-only prediction bookkeeping
+        private ushort _clientPredictedShotId; // For predicted instances, to match with authoritative
 
         private void Awake()
         {
@@ -72,6 +82,20 @@ namespace OffAngle.Weapons
         public override void OnStartClient()
         {
             base.OnStartClient();
+            
+            // If this is the authoritative spawn (not predicted), reconcile with predicted instance
+            if (base.IsOwner && _shotIdSync.Value != 0)
+            {
+                // Notify PlayerWeaponController to despawn the predicted version
+                // GetComponentInParent searches up the hierarchy, but projectiles are
+                // spawned unparented - need to find the player via attacker reference
+                if (_attackerSync.Value != null && 
+                    _attackerSync.Value.TryGetComponent<PlayerWeaponController>(out var controller))
+                {
+                    controller.ReconcilePredictedProjectile(_shotIdSync.Value, base.NetworkObject);
+                }
+            }
+            
             // Fires "for free" on every peer via the existing spawn message -
             // no extra RPC needed. Weapon context isn't synced (GunData is a
             // project asset, not a networked object) so it's passed as null to
@@ -81,23 +105,109 @@ namespace OffAngle.Weapons
         }
 
         /// <summary>
+        /// Owner-only. Called immediately after predicted spawn to tag the
+        /// predicted projectile with a shot ID for later reconciliation.
+        /// </summary>
+        public void OwnerSetPredictedShotId(ushort shotId)
+        {
+            _clientPredictedShotId = shotId;
+        }
+
+        /// <summary>
+        /// Owner-only. Initializes a predicted projectile with the same logic
+        /// the server will use. The predicted projectile is a visual-only GameObject
+        /// (not networked) that simulates movement locally but MUST NOT resolve 
+        /// damage or apply gameplay effects.
+        /// </summary>
+        public void ClientInitializePredicted(NetworkObject attacker, Transform attackerRoot, 
+            GunData weaponData, ProjectileShotBehavior config, Vector3 velocity)
+        {
+            // NOTE: This predicted instance is a regular GameObject (not networked),
+            // so we don't have access to base.IsOwner or SyncVars. That's fine -
+            // we only need to simulate visual movement.
+            
+            // Store references (but can't use _attackerSync since it's a SyncVar)
+            _attackerRoot = attackerRoot;
+            _weaponData = weaponData;
+            _config = config;
+            
+            _rigidbody.useGravity = config.UseGravity;
+            _rigidbody.linearVelocity = velocity;
+            _despawnAtTime = Time.time + Mathf.Max(0.01f, config.Lifetime);
+            _previousPosition = _rigidbody.position;
+            _initialized = true;
+            
+            // NOTE: Predicted projectile MUST NOT resolve damage or apply gameplay effects.
+            // All collision/damage logic checks IsServerInitialized, which will be false
+            // for this non-networked visual-only instance.
+        }
+
+        /// <summary>
         /// Server-only. Called once by ProjectileShotBehavior immediately
         /// after this instance is spawned.
         /// </summary>
-        public void ServerInitialize(NetworkObject attacker, Transform attackerRoot, GunData weaponData, ProjectileShotBehavior config, Vector3 velocity)
+        public void ServerInitialize(NetworkObject attacker, Transform attackerRoot, GunData weaponData, ProjectileShotBehavior config, Vector3 velocity, ushort shotId, uint fireTick)
         {
             if (!IsServerInitialized) return;
+
+            _shotIdSync.Value = shotId; // Replicate shot ID for reconciliation
 
             _attackerSync.Value = attacker;
             _attackerRoot = attackerRoot;
             _weaponData = weaponData;
             _config = config;
+            _fireTick = fireTick;
 
             _rigidbody.useGravity = config.UseGravity;
             _rigidbody.linearVelocity = velocity;
             _despawnAtTime = Time.time + Mathf.Max(0.01f, config.Lifetime);
             _previousPosition = _rigidbody.position;
             _initialized = true;
+            ServerCatchUp();
+        }
+
+        private void ServerCatchUp()
+        {
+            /// Hadal and Ascension shots do not send a client fire tick
+            if (_fireTick == 0) return;
+
+            float elapsed = (float)TimeManager.TimePassed(_fireTick, allowNegative: false);
+            float lifetime = Mathf.Max(0.01f, _config != null ? _config.Lifetime : 0f);
+            /// use Min to not exceed the max catch up seconds or the lifetime of the projectile
+            elapsed = Mathf.Min(elapsed, _maxCatchUpSeconds, lifetime);
+
+            if (elapsed <= 0f) return;
+
+            Vector3 position = _rigidbody.position;
+            Vector3 velocity = _rigidbody.linearVelocity;
+            float remaining = elapsed;
+
+            while (remaining > 0f && !_impactResolved)
+            {
+                float dt = Mathf.Min(Time.fixedDeltaTime, remaining);
+
+                if(_config != null && _config.UseGravity)
+                {
+                    velocity += Physics.gravity * dt;
+                }
+
+                Vector3 displacement = velocity * dt;
+                float distance = displacement.magnitude;
+                if (distance > 0.0001f)
+                {
+                    Vector3 direction = displacement / distance;
+                    if (ServerTrySweepSegment(position, direction, distance)) return;
+
+                    position += displacement;
+                }
+
+                remaining -= dt;
+            }
+
+            _rigidbody.position = position;
+            _rigidbody.linearVelocity = velocity;
+            _previousPosition = position;
+            _despawnAtTime = Time.time + (lifetime - elapsed);
         }
 
         private void Update()
@@ -119,35 +229,46 @@ namespace OffAngle.Weapons
             if (distance > 0.0001f)
             {
                 Vector3 direction = delta / distance;
-                LayerMask mask = _weaponData != null ? _weaponData.HitMask : ~0;
-                RaycastHit[] hits = Physics.SphereCastAll(
-                    _previousPosition,
-                    _castRadius,
-                    direction,
-                    distance,
-                    mask,
-                    QueryTriggerInteraction.Ignore);
-
-                System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-                foreach (RaycastHit hit in hits)
-                {
-                    if (_attackerRoot != null && hit.collider.transform.root == _attackerRoot)
-                        continue;
-
-                    // Ground-effect zones (fire patches, ...) are triggers a
-                    // projectile should fly straight through, not detonate
-                    // against - otherwise aiming repeatedly at the same spot
-                    // stacks zones instead of refreshing/overlapping them.
-                    if (hit.collider.GetComponentInParent<GroundEffectZone>() != null)
-                        continue;
-
-                    ResolveImpact(hit.collider, hit.point, hit.normal);
-                    break;
-                }
+                ServerTrySweepSegment(_previousPosition, direction, distance);
             }
 
             _previousPosition = _rigidbody.position;
+        }
+
+        /// <summary>
+        /// Server-only. SphereCasts one flight segment. First valid hit calls
+        /// ResolveImpact (same as live FixedUpdate). Returns true if an impact ran.
+        /// </summary> 
+        private bool ServerTrySweepSegment(Vector3 origin, Vector3 direction, float distance)
+        {
+            LayerMask mask = _weaponData != null ? _weaponData.HitMask : ~0;
+            RaycastHit [] hits = Physics.SphereCastAll(
+                origin,
+                _castRadius,
+                direction,
+                distance,
+                mask,
+                QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            foreach (RaycastHit hit in hits) 
+            {
+                if (_attackerRoot != null && hit.collider.transform.root == _attackerRoot)
+                {
+                    continue;
+                }
+
+                if (hit.collider.GetComponentInParent<GroundEffectZone>() != null)
+                {
+                    continue;
+                }
+
+                ResolveImpact(hit.collider, hit.point, hit.normal);
+
+                return true;
+            }
+
+            return false;
         }
 
         private void OnCollisionEnter(Collision collision)

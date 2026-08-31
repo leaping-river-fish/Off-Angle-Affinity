@@ -116,6 +116,7 @@ namespace OffAngle.Movement.Grapple
         private void HandleHookFired(NetworkObject owner, Transform hookTransform, Vector3 origin, Vector3 direction)
         {
             if (owner != _playerNetworkObject) return;
+            if (_isAttached) return;
 
             _activeHookTransform = hookTransform;
             _isAttached = false;

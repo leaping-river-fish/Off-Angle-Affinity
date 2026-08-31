@@ -101,6 +101,7 @@ GameObject:
   - component: {fileID: 7120456719034822156}
   - component: {fileID: 6120456719034822156}
   - component: {fileID: 5120456719034822156}
+  - component: {fileID: 3797153780011790747}
   - component: {fileID: 4120456719034822156}
   - component: {fileID: 2120456719034822156}
   - component: {fileID: 4038157056648922988}
@@ -158,24 +159,27 @@ MonoBehaviour:
   _spectatorInterpolation: 2
   _enableTeleport: 0
   _teleportThreshold: 1
-  <PrefabId>k__BackingField: 65535
+  <PrefabId>k__BackingField: 0
   <SpawnableCollectionId>k__BackingField: 0
   <AssetPathHash>k__BackingField: 4426157752491835095
   SceneId: 0
   SerializedTransformProperties:
     Position: {x: 0, y: 0, z: 0}
-    Rotation: {x: 0, y: 0, z: 0, w: 0}
-    Scale: {x: 0, y: 0, z: 0}
-    IsValid: 0
+    Rotation: {x: 0, y: 0, z: 0, w: 1}
+    Scale: {x: 1, y: 1, z: 1}
+    IsValid: 1
   <IsNested>k__BackingField: 0
   WasActiveDuringEdit: 0
   WasActiveDuringEdit_Set1: 1
   <ComponentIndex>k__BackingField: 0
   <PredictedSpawn>k__BackingField: {fileID: 0}
   <PredictedOwner>k__BackingField: {fileID: 0}
-  NetworkBehaviours: []
+  NetworkBehaviours:
+  - {fileID: 5120456719034822156}
+  - {fileID: 2120456719034822156}
   InitializedParentNetworkBehaviour: {fileID: 0}
-  InitializedNestedNetworkObjects: []
+  InitializedNestedNetworkObjects:
+  - {fileID: 6204659653785218718}
   RuntimeParentNetworkBehaviour: {fileID: 0}
   RuntimeChildNetworkBehaviours: []
   _isNetworked: 1
@@ -184,7 +188,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: 0
+  _initializedTimestamp: -8584141111109014078
 --- !u!114 &5120456719034822156
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -197,9 +201,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a2836e36774ca1c4bbbee976e17b649c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: FishNet.Runtime::FishNet.Component.Transforming.NetworkTransform
-  _componentIndexCache: 255
+  _componentIndexCache: 0
   _addedNetworkObject: {fileID: 6120456719034822156}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 6120456719034822156}
   _componentConfiguration: 0
   _synchronizeParent: 0
   _packing:
@@ -231,6 +235,23 @@ MonoBehaviour:
     X: 0
     Y: 0
     Z: 0
+--- !u!114 &3797153780011790747
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8120456719034822156}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e2b597e1828355a4d994a69cbb11ef85, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Component.Ownership.PredictedSpawn
+  _componentIndexCache: 255
+  _addedNetworkObject: {fileID: 6120456719034822156}
+  _networkObjectCache: {fileID: 0}
+  _allowSpawning: 1
+  _allowDespawning: 1
 --- !u!54 &4120456719034822156
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -270,9 +291,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b3d2099bf9533a046aa226ec5e2556f3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.Projectile
-  _componentIndexCache: 255
+  _componentIndexCache: 1
   _addedNetworkObject: {fileID: 6120456719034822156}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 6120456719034822156}
 --- !u!135 &4038157056648922988
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -364,7 +385,35 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
       propertyPath: _initializedTimestamp
-      value: -8584143458497320118
+      value: -8584141111109014078
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: <IsNested>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: <PrefabId>k__BackingField
+      value: 10
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: <ComponentIndex>k__BackingField
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: InitializedParentNetworkBehaviour
+      value: 
+      objectReference: {fileID: 5120456719034822156}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: SerializedTransformProperties.Scale.x
+      value: 0.05
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: SerializedTransformProperties.Scale.y
+      value: 0.05
+      objectReference: {fileID: 0}
+    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+      propertyPath: SerializedTransformProperties.Scale.z
+      value: 0.05
       objectReference: {fileID: 0}
     - target: {fileID: 8819398574350801789, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
       propertyPath: VelocityModule.enabled
@@ -387,6 +436,17 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+--- !u!114 &6204659653785218718 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
+  m_PrefabInstance: {fileID: 8728662373095447774}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 26b716c41e9b56b4baafaf13a523ba2e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Object.NetworkObject
 --- !u!4 &8728536073739345116 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 1000000000000002, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}

@@ -40,7 +40,20 @@ namespace OffAngle.Weapons
         /// </summary>
         public readonly float HeldDuration;
 
-        public ShotContext(Vector3 origin, Vector3 direction, GunData data, NetworkObject attacker, Transform attackerRoot, IShotBehaviorHost host, float heldDuration = 0f)
+        /// <summary>
+        /// Unique shot ID for prediction/reconciliation. Associates predicted
+        /// client shots with authoritative server shots to avoid duplicate effects.
+        /// </summary>
+        public readonly ushort ShotId;
+
+        /// <summary>
+        /// Owner's FishNet tick at the moment of fire (TimeManager.Tick on the
+        /// client that sent CmdFire). 0 when the shot was not initiated by that
+        /// path (beam ticks, ascension override, ultimates).
+        /// </summary>
+        public readonly uint FireTick;
+
+        public ShotContext(Vector3 origin, Vector3 direction, GunData data, NetworkObject attacker, Transform attackerRoot, IShotBehaviorHost host, float heldDuration = 0f, ushort shotId = 0, uint fireTick = 0)
         {
             Origin = origin;
             Direction = direction;
@@ -49,6 +62,8 @@ namespace OffAngle.Weapons
             AttackerRoot = attackerRoot;
             Host = host;
             HeldDuration = heldDuration;
+            ShotId = shotId;
+            FireTick = fireTick;
         }
     }
 }

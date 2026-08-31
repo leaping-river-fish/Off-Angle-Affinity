@@ -54,7 +54,7 @@ namespace OffAngle.Weapons
             {
                 Vector3 pelletDirection = ComputePelletDirection(ctx.Direction, i);
 
-                bool didHit = Physics.Raycast(ctx.Origin, pelletDirection, out RaycastHit hit, data.Range, data.HitMask, QueryTriggerInteraction.Ignore);
+                bool didHit = HitResolution.TryRaycastIgnoreSelf(ctx.Origin, pelletDirection, data.Range, data.HitMask, ctx.AttackerRoot, out RaycastHit hit);
                 tracerEnds[i] = didHit ? hit.point : ctx.Origin + pelletDirection * data.Range;
 
                 if (didHit)

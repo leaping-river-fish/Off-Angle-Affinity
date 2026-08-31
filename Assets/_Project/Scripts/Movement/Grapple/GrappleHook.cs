@@ -51,6 +51,7 @@ using System;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using OffAngle.Combat;
+using OffAngle.Networking;
 using UnityEngine;
 
 namespace OffAngle.Movement.Grapple
@@ -66,6 +67,7 @@ namespace OffAngle.Movement.Grapple
         // owner for future VFX/audio hooks (see GrappleEvents). FishNet
         // requires SyncVar<T> fields to be readonly-initialized.
         private readonly SyncVar<NetworkObject> _ownerSync = new SyncVar<NetworkObject>();
+        private readonly SyncVar<ushort> _castIdSync = new SyncVar<ushort>();
 
         private Rigidbody _rigidbody;
 
@@ -91,18 +93,33 @@ namespace OffAngle.Movement.Grapple
             // ever registering an overlap, so OnTriggerEnter silently never
             // fires and the hook flies on to time out as a miss - exactly
             // the "tracer goes into the wall but never pulls" symptom.
-            // Continuous does a swept test against static colliders instead
-            // of a single end-of-step point check, which is all this needs
-            // since world geometry is static and players (the only other
-            // thing in its path) are excluded via the IDamageable check
-            // above and move via CharacterController, not Rigidbody.
-            _rigidbody.collisionDetectionMode = CollisionDetectionMode.Continuous;
+            // ContinuousSpeculative works with triggers (unlike Continuous)
+            // and does swept collision detection to catch fast-moving objects.
+            _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         }
 
         public override void OnStartClient()
         {
             base.OnStartClient();
-            GrappleEvents.RaiseHookFired(_ownerSync.Value, transform, transform.position, transform.forward);
+
+            // Owner: if we already spawned a visual-only predicted hook, hand off
+            // to this networked instance and do NOT RaiseHookFired again. A second
+            // HookFired would snap the rope onto this transform while its mesh is
+            // still hidden and NetworkTransform may still be interpolating from origin.
+
+            bool ownerReconciled = false;
+            if (base.IsOwner
+                && _castIdSync.Value != 0
+                && _ownerSync.Value != null
+                && _ownerSync.Value.TryGetComponent<PlayerGrapple>(out PlayerGrapple grapple))
+                {
+                    ownerReconciled = grapple.ReconcilePredictedHook(_castIdSync.Value, base.NetworkObject);
+                }
+            
+            if (!ownerReconciled)
+            {
+                GrappleEvents.RaiseHookFired(_ownerSync.Value, transform, transform.position, transform.forward);
+            }
         }
 
         /// <summary>
@@ -120,9 +137,24 @@ namespace OffAngle.Movement.Grapple
         /// before Spawn() fixes that by baking the correct owner into the
         /// hook's initial spawn payload.
         /// </summary>
-        public void ServerSetOwner(NetworkObject owner)
+        public void ServerSetOwner(NetworkObject owner, ushort castId)
         {
             _ownerSync.Value = owner;
+            _castIdSync.Value = castId;
+        }
+
+        /// <summary>
+        /// Owner-only. Same flight setup as ServerInitialize, but this instance is a
+        /// regular GameObject (never Spawned). Collision still no-ops because
+        /// OnTriggerEnter / Update miss-timeout are gated on IsServerInitialized.
+        /// </summary>
+        public void ClientInitializePredicted(Transform attackerRoot, Vector3 velocity, bool useGravity, float lifetime)
+        {
+            _attackerRoot = attackerRoot;
+            _rigidbody.useGravity = useGravity;
+            _rigidbody.linearVelocity = velocity;
+            _despawnAtTime = Time.time + Mathf.Max(0.01f, lifetime);
+            _initialized = true;
         }
 
         /// <summary>

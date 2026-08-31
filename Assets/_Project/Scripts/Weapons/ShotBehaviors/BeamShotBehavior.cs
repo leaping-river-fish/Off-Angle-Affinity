@@ -53,7 +53,7 @@ namespace OffAngle.Weapons
 
         public BeamTickResult Tick(ShotContext ctx)
         {
-            bool didHit = Physics.Raycast(ctx.Origin, ctx.Direction, out RaycastHit hit, Range, ctx.Data.HitMask, QueryTriggerInteraction.Ignore);
+            bool didHit = HitResolution.TryRaycastIgnoreSelf(ctx.Origin, ctx.Direction, Range, ctx.Data.HitMask, ctx.AttackerRoot, out RaycastHit hit);
             Vector3 endPoint = didHit ? hit.point : ctx.Origin + ctx.Direction * Range;
 
             if (didHit)

@@ -36,6 +36,7 @@
 
 using FishNet;
 using FishNet.Object;
+using FishNet.Connection;
 using FishNet.Object.Synchronizing;
 using OffAngle.Combat;
 using OffAngle.Core;
@@ -66,12 +67,25 @@ namespace OffAngle.Networking
         [Tooltip("How many shots' worth of fire-rate credit a client may bank while not firing. This is the jitter tolerance for the server's rate check. FishNet flushes and reads RPCs on tick boundaries (33ms at the default 30 tick rate), so an honest client's shots routinely reach the server closer together than 1/FireRate - a burst weapon cannot land its full burst without this. 3 covers a standard 3-round burst. Sustained fire rate is capped at FireRate no matter what this is set to.")]
         [SerializeField, Range(1f, 8f)] private float _serverFireRateBurstAllowance = 3f;
 
+        [Tooltip("Maximum age of the owner's FireTick versus TimeManager.Tick. Older or future ticks are rejected. This is not rewind; it is the window lag compensation will sit behind.")]
+        [SerializeField, Min(0f)] private float _maxFireTickAgeSeconds = 0.25f;
+
         [Tooltip("Distance the aim ray's origin is pushed forward along the camera's forward direction before being sent to the server. Must clear the player's own CharacterController/hitbox colliders (radius ~0.5) so shots can never self-block while moving. Applied on the trusted client side, same as origin/direction themselves.")]
         [SerializeField, Min(0f)] private float _muzzleClearanceDistance = 0.6f;
 
         [Header("Feedback")]
         [Tooltip("Pure-visual tracer spawned locally on every peer for each shot (hit or miss). Not networked itself — only the start/end points travel over the tracer RPCs.")]
         [SerializeField] private BulletTracer _tracerPrefab;
+
+        [Header("Owner projectile handoff")]
+        [Tooltip("If predicted and authoritative are within this distance, skip blending and show the server projectile immediately.")]
+        [SerializeField, Min(0f)] private float _ownerHandoffSnapDistance = 1f;
+
+        [Tooltip("If visual error is larger than this, skip blending (likely clipped geometry). Hard-cut to the server projectile.")]
+        [SerializeField, Min(0f)] private float _ownerHandoffMaxBlendDistance = 12f;
+
+        [Tooltip("Seconds to lerp the predicted visual toward the authoritative transform.")]
+        [SerializeField, Min(0.01f)] private float _ownerHandoffBlendDuration = 0.1f;
 
         // Shared, stateless fallback so a GunData with no ShotBehavior assigned
         // keeps behaving exactly like the old hardcoded hitscan path. Created
@@ -145,6 +159,33 @@ namespace OffAngle.Networking
         private ProjectileShotBehavior _ascensionFireBehavior;
         private float _ascensionNextAllowedFireTime;
 
+        // ------------------------------------------------------------------
+        // Client-side prediction - shot ID tracking for reconciliation.
+        // Owner-only: tracks predicted shots (muzzle flash, tracers, 
+        // projectiles) so the authoritative server response can be 
+        // associated and duplicates avoided.
+        // ------------------------------------------------------------------
+        private ushort _ownerNextShotId = 1; // Wraps at ushort.MaxValue, 0 = invalid
+        private readonly Dictionary<ushort, PredictedShot> _predictedShots = new();
+
+        private struct PredictedShot
+        {
+            public GameObject PredictedProjectile; // Visual-only GameObject for predicted projectile (not networked)
+            public float PredictedAt; // Time.time when prediction was made, for timeout cleanup
+        }
+        
+        private struct OwnerProjectileHandoff
+        {
+            public GameObject Predicted;
+            public NetworkObject Authoritative;
+            public Vector3 StartPosition;
+            public Quaternion StartRotation;
+            public float StartTime;
+            public float Duration;
+        }
+
+        private readonly List<OwnerProjectileHandoff> _ownerHandoffs = new();
+
         public int  MagazineAmmo => _magazineAmmo.Value;
         public int  ReserveAmmo  => _reserveAmmo.Value;
         public bool IsReloading  => _isReloading.Value;
@@ -216,9 +257,15 @@ namespace OffAngle.Networking
 
         private void Update()
         {
+            if (!base.IsOwner) return;
+
+            // Cleanup stale predicted shots periodically
+            CleanupStalePredictions();
+
             // Owner-only: pace beam ticks at the behavior's TickRate rather
             // than sending a ServerRpc every rendered frame.
-            if (!base.IsOwner || !_ownerBeamHeld) return;
+            OwnerUpdateProjectileHandoffs();
+            if (!_ownerBeamHeld) return;
             if (_gun == null || _gun.Data == null) return;
             if (_gun.Data.ShotBehavior is not IContinuousShotBehavior beam) return;
 
@@ -229,6 +276,33 @@ namespace OffAngle.Networking
 
             GetAimRay(out Vector3 origin, out Vector3 direction);
             CmdBeamTick(origin, direction);
+        }
+
+        private void OwnerUpdateProjectileHandoffs()
+        {
+            for (int i = _ownerHandoffs.Count - 1; i >= 0; i--) 
+            {
+                OwnerProjectileHandoff handoff = _ownerHandoffs[i];
+
+                if (handoff.Predicted == null || handoff.Authoritative == null)
+                {
+                    OwnerFinishProjectileHandoff(handoff);
+                    _ownerHandoffs.RemoveAt(i);
+                    continue;
+                }
+
+                float t = Mathf.Clamp01((Time.time - handoff.StartTime) / Mathf.Max(0.01f, handoff.Duration));
+                Transform auth = handoff.Authoritative.transform;
+                handoff.Predicted.transform.SetPositionAndRotation(
+                    Vector3.Lerp(handoff.StartPosition, auth.position, t),
+                    Quaternion.Slerp(handoff.StartRotation, auth.rotation, t));
+
+                if (t >= 1f)
+                {
+                    OwnerFinishProjectileHandoff(handoff);
+                    _ownerHandoffs.RemoveAt(i);
+                }    
+            }
         }
 
         /// <summary>
@@ -498,7 +572,96 @@ namespace OffAngle.Networking
         private void HandleRequestFire()
         {
             GetAimRay(out Vector3 origin, out Vector3 direction);
-            CmdFire(origin, direction);
+            
+            // Generate unique shot ID for prediction/reconciliation
+            ushort shotId = _ownerNextShotId++;
+            if (_ownerNextShotId == 0) _ownerNextShotId = 1; // Skip 0 (invalid)
+            
+            // Predict fire effects immediately on owner
+            OwnerPredictFire(origin, direction, shotId);
+            
+            // Send to server for authoritative validation
+            CmdFire(origin, direction, shotId, (uint)TimeManager.Tick);
+        }
+
+        /// <summary>
+        /// Owner-only. Predicts firing effects immediately without waiting for
+        /// server round-trip. Plays muzzle flash, tracers, and spawns predicted
+        /// projectiles. The server's authoritative response will later be
+        /// reconciled via shot ID to avoid duplicate effects.
+        /// </summary>
+        private void OwnerPredictFire(Vector3 origin, Vector3 direction, ushort shotId)
+        {
+            if (!base.IsOwner) return;
+            if (_gun == null || _gun.Data == null) return;
+
+            // Muzzle flash - already handled by Gun.AttemptFire() → PlayFireAnimation()
+            // which was called before this via Gun.RequestFire event chain
+            
+            // Predict hitscan tracer immediately
+            if (_gun.Data.ShotBehavior is HitscanShotBehavior or null) // null = default hitscan
+            {
+                bool didHit = HitResolution.TryRaycastIgnoreSelf(origin, direction, _gun.Data.Range, _gun.Data.HitMask, transform.root, out RaycastHit hit);
+                Vector3 tracerEnd = didHit ? hit.point : origin + direction * _gun.Data.Range;
+                
+                if (_tracerPrefab != null)
+                {
+                    BulletTracer tracer = Instantiate(_tracerPrefab, 
+                        ((IShotBehaviorHost)this).MuzzlePosition, Quaternion.identity);
+                    tracer.Play(((IShotBehaviorHost)this).MuzzlePosition, tracerEnd);
+                }
+                
+                // Store prediction for cleanup
+                _predictedShots[shotId] = new PredictedShot 
+                { 
+                    PredictedProjectile = null, 
+                    PredictedAt = Time.time 
+                };
+            }
+            // Predict projectile weapons immediately (visual-only, non-networked)
+            else if (_gun.Data.ShotBehavior is ProjectileShotBehavior projBehavior && 
+                projBehavior.ProjectilePrefab != null)
+            {
+                Vector3 muzzle = ((IShotBehaviorHost)this).MuzzlePosition;
+                Vector3 correctedDir = ComputeAimCorrectedDirection(origin, direction, muzzle);
+                
+                // Instantiate as regular GameObject (not networked) for immediate visual feedback
+                GameObject predicted = Instantiate(projBehavior.ProjectilePrefab.gameObject, 
+                    muzzle, 
+                    Quaternion.LookRotation(correctedDir, Vector3.up));
+                
+                if (predicted != null && predicted.TryGetComponent<Projectile>(out var proj))
+                {
+                    // Initialize predicted projectile with same parameters server will use
+                    proj.ClientInitializePredicted(base.NetworkObject, transform.root, 
+                        _gun.Data, projBehavior, correctedDir * projBehavior.Speed);
+                    proj.OwnerSetPredictedShotId(shotId);
+                    
+                    _predictedShots[shotId] = new PredictedShot 
+                    { 
+                        PredictedProjectile = predicted,
+                        PredictedAt = Time.time 
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Computes aim-corrected direction for projectiles, matching the logic
+        /// in ProjectileShotBehavior.ComputeAimCorrectedDirection. Ensures the
+        /// predicted projectile aims at what the player's crosshair is actually
+        /// pointing at, not just the muzzle's forward direction.
+        /// </summary>
+        private Vector3 ComputeAimCorrectedDirection(Vector3 origin, Vector3 direction, Vector3 muzzle)
+        {
+            float referenceDistance = _gun.Data.Range > 0f ? _gun.Data.Range : 500f;
+            
+            Vector3 aimPoint = HitResolution.TryRaycastIgnoreSelf(origin, direction, referenceDistance, _gun.Data.HitMask, transform.root, out RaycastHit hit)
+                ? hit.point
+                : origin + direction * referenceDistance;
+            
+            Vector3 toAimPoint = aimPoint - muzzle;
+            return toAimPoint.sqrMagnitude > 0.0001f ? toAimPoint.normalized : direction;
         }
 
         /// <summary>
@@ -555,7 +718,7 @@ namespace OffAngle.Networking
         // ------------------------------------------------------------------
 
         [ServerRpc]
-        private void CmdFire(Vector3 origin, Vector3 direction)
+        private void CmdFire(Vector3 origin, Vector3 direction, ushort shotId, uint clientTick)
         {
             if (_gun == null || _gun.Data == null)
             {
@@ -571,6 +734,25 @@ namespace OffAngle.Networking
                 LogFireRejected("dead");
                 return;
             }
+
+            // Timing validation - foundation for future lag compensation
+            uint serverTick = (uint)TimeManager.Tick;
+            if (clientTick > serverTick)
+            {
+                ServerRejectShot(shotId, "FireTick in the future");
+                return;
+            }
+
+            double fireTickAge = TimeManager.TimePassed(clientTick, allowNegative: false);
+            if (fireTickAge > _maxFireTickAgeSeconds)
+            {
+                ServerRejectShot(shotId, "FireTick too old");
+                return;
+            }
+            
+            // For now, just trust origin/direction as-is (existing behavior)
+            // Future: add sanity checks (tickDelta < reasonable threshold, 
+            // origin near player position, etc.)
 
             GunData data = _gun.Data;
 
@@ -621,21 +803,42 @@ namespace OffAngle.Networking
             }
 
             ShotDeliveryKind kind = data.ShotBehavior != null ? data.ShotBehavior.Kind : ShotDeliveryKind.Instant;
-            if (kind != ShotDeliveryKind.Instant) return; // Continuous/Charged behaviors fire through the hold-based path instead.
+            if (kind != ShotDeliveryKind.Instant)
+            {
+                ServerRejectShot(shotId, "Not instant");
+                return;
+            } // Continuous/Charged behaviors fire through the hold-based path instead.
 
             if (direction.sqrMagnitude < 0.0001f)
             {
-                LogFireRejected("zero-length direction");
+                ServerRejectShot(shotId, "Zero-length direction");
                 return;
             }
             direction.Normalize();
 
             InstantShotBehavior behavior = data.ShotBehavior as InstantShotBehavior ?? DefaultHitscanBehavior;
-            ShotContext ctx = new ShotContext(origin, direction, data, base.NetworkObject, transform.root, this);
-            behavior.Fire(ctx);
+            ShotContext ctx = new ShotContext(origin, direction, data, base.NetworkObject, transform.root, this, 0f, shotId, clientTick);
+            // One rewind for the whole Fire(): hitscan ray or all shotgun pellets.
+            bool rewindHitboxes = behavior is HitscanShotBehavior or ShotgunShotBehavior;
+            if (rewindHitboxes)
+                HitboxHistoryRegistry.Rewind(clientTick);
+            try
+            {
+                behavior.Fire(ctx);
+            }
+            finally
+            {
+                if (rewindHitboxes)
+                    HitboxHistoryRegistry.Restore();
+            }
+
+            if (behavior is not ProjectileShotBehavior)
+            {
+                ServerAcceptPredictedInstant(shotId);
+            }
             if (_gun.ParticleSystem != null)
             {
-                Instantiate(_gun.ParticleSystem,_gun.FirePoint);
+                Instantiate(_gun.ParticleSystem, _gun.FirePoint);
             }
         }
 
@@ -653,6 +856,19 @@ namespace OffAngle.Networking
             int clientId = base.Owner != null ? base.Owner.ClientId : -1;
             string gunName = _gun != null ? _gun.name : "<none>";
             Debug.Log($"[{nameof(PlayerWeaponController)}] CmdFire rejected for client {clientId} ({gunName}): {reason}");
+        }
+
+        private void ServerRejectShot(ushort shotId, string reason)
+        {
+            LogFireRejected(reason);
+            if(base.Owner == null) return;
+            TargetRpcShotRejected(base.Owner, shotId);
+        }
+
+        private void ServerAcceptPredictedInstant(ushort shotId)
+        {
+            if(base.Owner == null) return;
+            TargetRpcShotAccepted(base.Owner, shotId);
         }
 
         [ServerRpc]
@@ -870,11 +1086,155 @@ namespace OffAngle.Networking
             return instance;
         }
 
+        NetworkObject IShotBehaviorHost.SpawnPredictedProjectile(NetworkObject prefab, Vector3 position, Quaternion rotation, ushort shotId)
+        {
+            // No longer used - prediction now uses visual-only GameObjects instead of networked spawning
+            // Kept for interface compatibility, but returns null
+            return null;
+        }
+
         // ------------------------------------------------------------------
-        // Tracer feedback (pure UX — never mutates game state)
+        // Prediction reconciliation and cleanup
         // ------------------------------------------------------------------
 
-        [ObserversRpc]
+        /// <summary>
+        /// Called by Projectile.OnStartClient when the authoritative server
+        /// projectile spawns. Destroys the visual-only predicted version to avoid duplicates.
+        /// </summary>
+        public void ReconcilePredictedProjectile(ushort shotId, NetworkObject authoritative)
+        {
+            if (!base.IsOwner) return;
+
+            if(!_predictedShots.TryGetValue(shotId, out PredictedShot predicted)) return;
+
+            _predictedShots.Remove(shotId);
+
+            GameObject predictedGo = predicted.PredictedProjectile;
+            if (predictedGo == null) return;
+
+            if (authoritative == null)
+            {
+                Destroy(predictedGo);
+                return;
+            }
+
+            OwnerSetProjectileRenderers(authoritative.gameObject, false);
+
+            float error = Vector3.Distance(predictedGo.transform.position, authoritative.transform.position);
+            bool snap = error <= _ownerHandoffSnapDistance || error > _ownerHandoffMaxBlendDistance;
+
+
+            if (predictedGo.TryGetComponent<Rigidbody>(out Rigidbody predictedBody))
+            {
+                predictedBody.linearVelocity = Vector3.zero;
+                predictedBody.isKinematic = true;
+            }
+
+            if (snap)
+            {
+                OwnerFinishProjectileHandoff(new OwnerProjectileHandoff{
+                    Predicted = predictedGo,
+                    Authoritative = authoritative,
+                });
+                return;
+            }
+        
+            _ownerHandoffs.Add(new OwnerProjectileHandoff
+            {
+                Predicted = predictedGo,
+                Authoritative = authoritative,
+                StartPosition = predictedGo.transform.position,
+                StartRotation = predictedGo.transform.rotation,
+                StartTime = Time.time,
+                Duration = _ownerHandoffBlendDuration
+            });
+        }
+
+        private void OwnerFinishProjectileHandoff(OwnerProjectileHandoff handoff)
+        {
+            if (handoff.Predicted != null)
+            {
+                Destroy(handoff.Predicted);
+            }
+
+            if (handoff.Authoritative != null)
+            {
+                OwnerSetProjectileRenderers(handoff.Authoritative.gameObject, true);
+            }
+        }
+
+        private void OwnerResolvePredictedShot(ushort shotId)
+        {
+            if (_predictedShots.TryGetValue(shotId, out PredictedShot predicted))
+            {
+                if (predicted.PredictedProjectile != null)
+                {
+                    Destroy(predicted.PredictedProjectile);
+                }
+                _predictedShots.Remove(shotId);
+            }
+        }
+
+        private static void OwnerSetProjectileRenderers(GameObject root, bool enabled)
+        {
+            if (root == null) return;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+
+            for(int i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].enabled = enabled;
+            }
+        }
+
+        [TargetRpc]
+        private void TargetRpcShotRejected(NetworkConnection conn, ushort shotId)
+        {
+            OwnerResolvePredictedShot(shotId);
+        }
+
+        [TargetRpc]
+        private void TargetRpcShotAccepted(NetworkConnection conn, ushort shotId)
+        {
+            OwnerResolvePredictedShot(shotId);
+        }
+
+        /// <summary>
+        /// Cleans up stale predicted shots that never reconciled (e.g., server
+        /// rejected the shot due to ammo/death, or packet loss prevented the
+        /// authoritative projectile from arriving). Called periodically from Update().
+        /// </summary>
+        private void CleanupStalePredictions()
+        {
+            if (!base.IsOwner) return;
+            if (_predictedShots.Count == 0) return;
+            
+            float now = Time.time;
+            List<ushort> stale = new List<ushort>();
+            
+            foreach (var kvp in _predictedShots)
+            {
+                if (now - kvp.Value.PredictedAt > 2f) // Timeout after 2 seconds
+                {
+                    if (kvp.Value.PredictedProjectile != null)
+                    {
+                        // Destroy the visual-only predicted projectile (regular GameObject)
+                        Destroy(kvp.Value.PredictedProjectile);
+                    }
+                    stale.Add(kvp.Key);
+                }
+            }
+            
+            foreach (ushort id in stale)
+                _predictedShots.Remove(id);
+        }
+
+        // ------------------------------------------------------------------
+        // Tracer feedback (pure UX — never mutates game state)
+        // Owner already predicted tracers in OwnerPredictFire(), so exclude
+        // owner from these RPCs to prevent duplicates.
+        // ------------------------------------------------------------------
+
+        [ObserversRpc(ExcludeOwner = true, RunLocally = false)]
         private void RpcPlayTracer(Vector3 start, Vector3 end)
         {
             if (_tracerPrefab != null)
@@ -885,7 +1245,7 @@ namespace OffAngle.Networking
             ShotEvents.RaiseShotFired(base.NetworkObject, _gun != null ? _gun.Data : null, start, end);
         }
 
-        [ObserversRpc]
+        [ObserversRpc(ExcludeOwner = false, RunLocally = false)]
         private void RpcPlayTracers(Vector3 start, Vector3[] ends)
         {
             GunData weapon = _gun != null ? _gun.Data : null;
