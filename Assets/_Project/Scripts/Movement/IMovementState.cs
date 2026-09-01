@@ -28,7 +28,9 @@
 // CHAINABLE SEQUENCES (momentum MUST be preserved across these)
 // ───────────────────────────────────────────────────────────────────────────
 //   Sprint → Slide
-//     Entry speed = sprint speed. Slide decelerates from there via friction.
+//     Entry speed = current horizontal speed (sprint, leftover momentum,
+//     etc.). Not snapped to SlideMaxSpeed. Flat/uphill then decelerate
+//     from that inherited speed; downhill accelerates from it.
 //
 //   Slide → Jump
 //     Full horizontal velocity is preserved + vertical impulse added.
@@ -126,12 +128,14 @@
 //               CrouchAmount (see MovementCapsuleUtility)
 //   Airborne    full gravity × GravityMultiplier, AirControlMultiplier ×
 //               AirAcceleration × SpeedMultiplier
-//   Sliding     flat ground holds speed CONSTANT (no ambient friction);
-//               sliding meaningfully downhill accelerates continuously up to
+//   Sliding     flat ground decelerates at SlideFlatDeceleration; sliding
+//               meaningfully downhill accelerates continuously up to
 //               MaxPreservedSpeed (not capped at SlideMaxSpeed - see
-//               SlidingState's SPEED MODEL note); uphill resists via the same
-//               SlideSlopeAcceleration; steering input nudges direction
-//               without killing speed; move vector is solved to stay tangent
+//               SlidingState's SPEED MODEL note); uphill stacks the same
+//               SlideSlopeAcceleration resistance on top of that flat drag;
+//               the slide lasts at least SlideDuration then continues while
+//               speed stays >= SlideMinSpeed; steering input nudges direction
+//               without raising speed; move vector is solved to stay tangent
 //               to the slope (see SlidingState's GROUND CONTACT note) and any
 //               tiny leftover gap is folded into that same Move() call via
 //               SlopeUtility.MoveWithGroundSnap (MovementSettings.

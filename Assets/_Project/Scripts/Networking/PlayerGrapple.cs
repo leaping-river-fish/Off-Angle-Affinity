@@ -70,6 +70,7 @@ using OffAngle.Combat;
 using OffAngle.Core;
 using OffAngle.Movement;
 using OffAngle.Movement.Grapple;
+using OffAngle.Weapons;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -273,7 +274,29 @@ namespace OffAngle.Networking
         {
             origin = _cameraTransform != null ? _cameraTransform.position : transform.position;
             direction = _cameraTransform != null ? _cameraTransform.forward : transform.forward;
-            origin += direction * _muzzleClearanceDistance;
+
+            // Push past the player's own capsule, but never through a surface
+            // closer than the clearance - that spawned the hook inside the
+            // aimed wall so OnTriggerEnter never fired (head-on / airborne
+            // closing misses).
+            if (_muzzleClearanceDistance <= 0f) return;
+
+            const float skin = 0.05f;
+            if (HitResolution.TryRaycastIgnoreSelf(
+                    origin,
+                    direction,
+                    _muzzleClearanceDistance,
+                    ~0,
+                    transform.root,
+                    out RaycastHit hit))
+            {
+                float back = Mathf.Min(skin, hit.distance);
+                origin = hit.point - direction * back;
+            }
+            else
+            {
+                origin += direction * _muzzleClearanceDistance;
+            }
         }
 
         private void OwnerPredictHook(Vector3 origin, Vector3 direction, ushort castId)

@@ -1611,12 +1611,13 @@ MonoBehaviour:
     AirControlMultiplier: 1
     AirAcceleration: 25
     SlideEntrySpeedThreshold: 7
-    SlideDuration: 1
+    SlideDuration: 0.5
     SlideMaxSpeed: 14
-    SlideMinSpeed: 5
+    SlideMinSpeed: 8
     SlideCooldown: 1
     SlideSteerAcceleration: 10
     SlideSlopeAcceleration: 6
+    SlideFlatDeceleration: 6
     AllowJumpDuringSlide: 1
     AllowFireDuringSlide: 1
     AllowReloadDuringSlide: 1
@@ -1854,6 +1855,7 @@ MonoBehaviour:
   _lifecycle: {fileID: 8432026098743611657}
   _stateController: {fileID: 4848753837396730076}
   _serverFireRateBurstAllowance: 3
+  _maxFireTickAgeSeconds: 0.25
   _muzzleClearanceDistance: 0.6
   _tracerPrefab: {fileID: 2952079945757915, guid: c18e52cbe5e74825a3f5132645a2701e, type: 3}
   _ownerHandoffSnapDistance: 1

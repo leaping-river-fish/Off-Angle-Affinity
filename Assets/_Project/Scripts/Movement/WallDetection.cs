@@ -18,6 +18,12 @@
 //   (towardNormal). Side rays alone fail on convex curves because the wall
 //   falls away from player.right as the surface bends - casting toward the
 //   last known normal keeps contact across those bends.
+//   Look-based left/right rays must NOT override that into-wall hit just
+//   because yaw rotated player.right onto a facing facet (that is how
+//   curved walls froze the capsule). They may still TRANSFER onto a
+//   genuinely different wall when the player looks into a corner: the new
+//   normal differs enough from towardNormal, and the hit is beside look
+//   rather than head-on into it.
 // =============================================================================
 
 using UnityEngine;
@@ -47,6 +53,15 @@ namespace OffAngle.Movement
         // past the end of a wall.
         private const float SphereRadiusFraction = 0.25f;
 
+        // Minimum degrees between the tracked wall normal and a side-ray hit
+        // before that hit counts as a corner/wall transfer instead of the
+        // same surface (or a nearby facet on a curve).
+        private const float TransferMinNormalAngle = 40f;
+
+        // abs(dot(look, hitNormal)) at or above this is a wall in FRONT of
+        // look, not beside it. 0.55 ≈ 33° from fully facing.
+        private const float HeadOnDotThreshold = 0.55f;
+
         /// <summary>
         /// Finds a wall-runnable surface near the player.
         /// <paramref name="preferredSide"/> is honored when still valid
@@ -54,11 +69,15 @@ namespace OffAngle.Movement
         /// <paramref name="towardNormal"/> - when non-zero, also casts INTO
         /// that direction (toward the wall). WallRunningState passes the
         /// smoothed wall normal so convex curves keep contact.
+        /// <paramref name="lookHint"/> - horizontal look used while already
+        /// running to decide whether a side-ray hit is beside the player
+        /// (eligible transfer) or head-on (obstacle, do not adopt).
         /// </summary>
         public static bool TryFindWall(
             MovementStateContext ctx,
             WallSide preferredSide,
             Vector3 towardNormal,
+            Vector3 lookHint,
             out WallHit hit)
         {
             hit = default;
@@ -92,8 +111,28 @@ namespace OffAngle.Movement
                 towardValid = TryCastWall(origin, intoWall, distance, sphereRadius, mask, angleTol, out towardHit);
             }
 
-            // Prefer the previously-held side when it is still valid so a
-            // concave corner (both casts hit) does not thrash between walls.
+            bool running = preferredSide != WallSide.None && towardNormal.sqrMagnitude > 0.0001f;
+            if (running)
+            {
+                if (TryPickLookTransfer(
+                    preferredSide, towardNormal, lookHint,
+                    leftValid, leftHit, rightValid, rightHit, out hit))
+                    return true;
+
+                if (towardValid)
+                {
+                    WallSide side = ResolveSide(player, towardHit.normal, preferredSide);
+                    hit = BuildHit(towardHit, side);
+                    return true;
+                }
+
+                return TryPickSideFallback(
+                    preferredSide, lookHint,
+                    leftValid, leftHit, rightValid, rightHit, out hit);
+            }
+
+            // Entry / no tracked wall: prefer the previously-held side when
+            // it is still valid so a concave corner does not thrash.
             if (preferredSide == WallSide.Left && leftValid)
             {
                 hit = BuildHit(leftHit, WallSide.Left);
@@ -106,8 +145,6 @@ namespace OffAngle.Movement
                 return true;
             }
 
-            // While wall running, a toward-normal hit on the same continuous
-            // surface beats a fresh opposite-side cast - keeps convex contact.
             if (towardValid)
             {
                 WallSide side = ResolveSide(player, towardHit.normal, preferredSide);
@@ -138,9 +175,17 @@ namespace OffAngle.Movement
             return false;
         }
 
+        /// <summary>Convenience overload while already running (no separate look hint).</summary>
+        public static bool TryFindWall(
+            MovementStateContext ctx,
+            WallSide preferredSide,
+            Vector3 towardNormal,
+            out WallHit hit) =>
+            TryFindWall(ctx, preferredSide, towardNormal, Vector3.zero, out hit);
+
         /// <summary>Convenience overload for entry checks (no known wall normal yet).</summary>
         public static bool TryFindWall(MovementStateContext ctx, WallSide preferredSide, out WallHit hit) =>
-            TryFindWall(ctx, preferredSide, Vector3.zero, out hit);
+            TryFindWall(ctx, preferredSide, Vector3.zero, Vector3.zero, out hit);
 
         /// <summary>
         /// True if <paramref name="collider"/> / <paramref name="point"/>
@@ -203,6 +248,116 @@ namespace OffAngle.Movement
         // ------------------------------------------------------------------
         // Private helpers
         // ------------------------------------------------------------------
+
+        private static bool TryPickLookTransfer(
+            WallSide preferredSide, Vector3 currentNormal, Vector3 lookHint,
+            bool leftValid, RaycastHit leftHit, bool rightValid, RaycastHit rightHit,
+            out WallHit hit)
+        {
+            hit = default;
+
+            bool leftTransfer = leftValid
+                && IsTransferCandidate(leftHit.normal, currentNormal)
+                && !IsHeadOnToLook(leftHit.normal, lookHint);
+            bool rightTransfer = rightValid
+                && IsTransferCandidate(rightHit.normal, currentNormal)
+                && !IsHeadOnToLook(rightHit.normal, lookHint);
+
+            if (preferredSide == WallSide.Left && leftTransfer)
+            {
+                hit = BuildHit(leftHit, WallSide.Left);
+                return true;
+            }
+
+            if (preferredSide == WallSide.Right && rightTransfer)
+            {
+                hit = BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            if (leftTransfer && rightTransfer)
+            {
+                hit = leftHit.distance <= rightHit.distance
+                    ? BuildHit(leftHit, WallSide.Left)
+                    : BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            if (leftTransfer)
+            {
+                hit = BuildHit(leftHit, WallSide.Left);
+                return true;
+            }
+
+            if (rightTransfer)
+            {
+                hit = BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryPickSideFallback(
+            WallSide preferredSide, Vector3 lookHint,
+            bool leftValid, RaycastHit leftHit, bool rightValid, RaycastHit rightHit,
+            out WallHit hit)
+        {
+            hit = default;
+
+            bool leftOk = leftValid && !IsHeadOnToLook(leftHit.normal, lookHint);
+            bool rightOk = rightValid && !IsHeadOnToLook(rightHit.normal, lookHint);
+
+            if (preferredSide == WallSide.Left && leftOk)
+            {
+                hit = BuildHit(leftHit, WallSide.Left);
+                return true;
+            }
+
+            if (preferredSide == WallSide.Right && rightOk)
+            {
+                hit = BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            if (leftOk && rightOk)
+            {
+                hit = leftHit.distance <= rightHit.distance
+                    ? BuildHit(leftHit, WallSide.Left)
+                    : BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            if (leftOk)
+            {
+                hit = BuildHit(leftHit, WallSide.Left);
+                return true;
+            }
+
+            if (rightOk)
+            {
+                hit = BuildHit(rightHit, WallSide.Right);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsTransferCandidate(Vector3 hitNormal, Vector3 currentNormal) =>
+            Vector3.Angle(hitNormal, currentNormal) >= TransferMinNormalAngle;
+
+        private static bool IsHeadOnToLook(Vector3 wallNormal, Vector3 lookHint)
+        {
+            Vector3 look = new Vector3(lookHint.x, 0f, lookHint.z);
+            if (look.sqrMagnitude < 0.0001f)
+                return false;
+
+            Vector3 normal = new Vector3(wallNormal.x, 0f, wallNormal.z);
+            if (normal.sqrMagnitude < 0.0001f)
+                return false;
+
+            return Mathf.Abs(Vector3.Dot(look.normalized, normal.normalized)) >= HeadOnDotThreshold;
+        }
 
         private static bool TryCastWall(
             Vector3 origin, Vector3 direction, float distance, float sphereRadius,

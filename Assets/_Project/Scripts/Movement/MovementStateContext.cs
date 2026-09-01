@@ -156,11 +156,13 @@ namespace OffAngle.Movement
         public float NextCrouchAllowedTime;
 
         /// <summary>
-        /// Seconds remaining in the current slide. Set to Settings.SlideDuration
-        /// by SlidingState.Enter(), counted down in SlidingState.Tick(). Reset
-        /// to 0 by SlidingState.Exit() and by MovementStateMachine.ResetTransientInput()
-        /// so a state frozen mid-slide by death self-heals into Grounded/Crouching
-        /// on its very next Tick after respawn.
+        /// Seconds remaining in the current slide's minimum-duration lock.
+        /// Set to Settings.SlideDuration by SlidingState.Enter(), counted
+        /// down in SlidingState.Tick() - the slide cannot end for being
+        /// below SlideMinSpeed until this reaches 0. Reset to 0 by
+        /// SlidingState.Exit() and by MovementStateMachine.ResetTransientInput()
+        /// so a state frozen mid-slide by death self-heals (once also below
+        /// SlideMinSpeed) on its very next Tick after respawn.
         /// </summary>
         public float SlideTimer;
 
@@ -418,9 +420,9 @@ namespace OffAngle.Movement
         [Header("Slide / Crouch")]
         [Tooltip("Horizontal speed (m/s) required at Left Ctrl press to enter Slide instead of Crouch. Must be greater than SlideMinSpeed, or the slide will end on the very first Tick. Tune in playtesting.")]
         public float SlideEntrySpeedThreshold = 4f;
-        [Tooltip("Maximum seconds a single slide can last before it automatically ends (independent of speed). Does NOT apply while sliding meaningfully downhill - see SlidingState's DURATION note - only flat ground and uphill slides are bound by this timer.")]
-        public float SlideDuration            = 1.2f;
-        [Tooltip("Hard speed ceiling for sliding, in m/s. Entry speed above this is clamped down; entry speed below this is preserved as-is (see SlidingState.Enter). Does NOT cap sliding meaningfully downhill - that instead accelerates continuously up to MaxPreservedSpeed, so a long slope keeps rewarding speed instead of plateauing here almost immediately. Applies to flat ground and uphill sliding.")]
+        [Tooltip("Minimum seconds a slide lasts before it can end for dropping below SlideMinSpeed. After this, the slide continues for as long as horizontal speed stays at or above SlideMinSpeed. Does not delay slide-jump or sliding off a ledge.")]
+        public float SlideDuration            = 0.5f;
+        [Tooltip("Soft speed ceiling (m/s) while sliding on flat ground or uphill. Entry speed is NOT snapped to this - a faster entry keeps its momentum and then decelerates from there (same idea as WallRunMaxSpeed). Does NOT cap sliding downhill - that accelerates continuously up to MaxPreservedSpeed.")]
         public float SlideMaxSpeed            = 9f;
         [Tooltip("Horizontal speed (m/s) below which an active slide automatically ends. Should be lower than SlideEntrySpeedThreshold.")]
         public float SlideMinSpeed            = 2.5f;
@@ -428,8 +430,10 @@ namespace OffAngle.Movement
         public float SlideCooldown            = 0.5f;
         [Tooltip("Acceleration (m/s²) applied toward the player's held move direction while sliding. Lets the player steer without killing slide speed the way ground movement would.")]
         public float SlideSteerAcceleration   = 10f;
-        [Tooltip("Acceleration (m/s²) applied along the slope's downhill direction while sliding, and subtracted while sliding uphill. Flat ground has none of this and holds speed constant. Set to 0 to disable slope sensitivity entirely - speed then never changes on its own while sliding.")]
+        [Tooltip("Acceleration (m/s²) applied along the slope's downhill direction while sliding, and subtracted while sliding uphill. Scales with slope angle the same way in both directions. Stacks on top of SlideFlatDeceleration when not moving downhill. Set to 0 to disable the slope term.")]
         public float SlideSlopeAcceleration   = 6f;
+        [Tooltip("Deceleration (m/s²) applied while sliding on flat ground or uphill. Not applied while moving downhill. Uphill adds SlideSlopeAcceleration on top of this, so a steeper climb bleeds speed faster.")]
+        public float SlideFlatDeceleration    = 6f;
 
         [Header("Slide Restrictions")]
         [Tooltip("If true, pressing Jump during a slide launches the player (slide-jump: full horizontal speed preserved + vertical impulse). If false, Jump presses during a slide are ignored.")]

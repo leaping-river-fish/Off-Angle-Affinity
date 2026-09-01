@@ -15,10 +15,18 @@
 //   The Collider on this prefab MUST be a TRIGGER (not solid). A trigger
 //   collider generates no physical collision response at all, so the hook's
 //   Rigidbody flies straight through anything it hits and this class alone
-//   decides - in OnTriggerEnter, in script - whether that overlap counts as
-//   a valid attach point. This sidesteps Unity's Physics Layer Collision
-//   Matrix entirely: no project-settings changes are needed to get
-//   "collides with world geometry but passes through players/entities."
+//   decides whether that overlap counts as a valid attach point.
+//
+//   Fast hooks cannot rely on OnTriggerEnter alone. At typical speeds
+//   (55 m/s default) a collider travels ~1.1m per 0.02s physics step, so
+//   discrete trigger overlaps tunnel through thin/angled geometry and
+//   OnTriggerEnter never fires - the "tracer goes into the wall but never
+//   pulls" miss. Hit detection is therefore a swept SphereCast along the
+//   motion each FixedUpdate (same approach as Projectile.cs), with an
+//   OverlapSphere at spawn for the case where the hook starts already
+//   inside the aimed surface (muzzle clearance / closing a wall airborne).
+//   OnTriggerEnter is kept only as a slow-speed fallback. ContinuousSpeculative
+//   CCD is still set on the Rigidbody as a backstop; it is not the hit test.
 //
 //   A collider counts as a valid surface unless:
 //     1. its root is the attacker's own root (never self-attach), or
@@ -70,6 +78,7 @@ namespace OffAngle.Movement.Grapple
         private readonly SyncVar<ushort> _castIdSync = new SyncVar<ushort>();
 
         private Rigidbody _rigidbody;
+        private float _castRadius;
 
         // Server-only bookkeeping - never read on clients.
         private Transform _attackerRoot;
@@ -80,21 +89,15 @@ namespace OffAngle.Movement.Grapple
         private bool _initialized;
         private bool _resolved;
         private bool _attached;
+        private Vector3 _previousPosition;
 
         private void Awake()
         {
             _rigidbody = GetComponent<Rigidbody>();
+            _castRadius = ResolveCastRadius();
 
-            // Discrete (the prefab's serialized default) only tests for
-            // overlap once per physics step - at _hookSpeed (55 m/s default)
-            // against a 0.02s fixed timestep that's ~1.1m of travel per
-            // step, easily enough to skip clean over a thin panel, a
-            // pillar's edge, or a glancing hit on angled geometry without
-            // ever registering an overlap, so OnTriggerEnter silently never
-            // fires and the hook flies on to time out as a miss - exactly
-            // the "tracer goes into the wall but never pulls" symptom.
-            // ContinuousSpeculative works with triggers (unlike Continuous)
-            // and does swept collision detection to catch fast-moving objects.
+            // Secondary to the swept cast below - kept for the OnTriggerEnter
+            // fallback. Discrete trigger overlap alone tunnels at hook speed.
             _rigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         }
 
@@ -146,7 +149,7 @@ namespace OffAngle.Movement.Grapple
         /// <summary>
         /// Owner-only. Same flight setup as ServerInitialize, but this instance is a
         /// regular GameObject (never Spawned). Collision still no-ops because
-        /// OnTriggerEnter / Update miss-timeout are gated on IsServerInitialized.
+        /// sweep / OnTriggerEnter / Update miss-timeout are gated on IsServerInitialized.
         /// </summary>
         public void ClientInitializePredicted(Transform attackerRoot, Vector3 velocity, bool useGravity, float lifetime)
         {
@@ -181,7 +184,11 @@ namespace OffAngle.Movement.Grapple
             _rigidbody.useGravity = useGravity;
             _rigidbody.linearVelocity = velocity;
             _despawnAtTime = Time.time + Mathf.Max(0.01f, lifetime);
+            _previousPosition = _rigidbody.position;
             _initialized = true;
+
+            // SphereCast does not report colliders the sphere already overlaps.
+            TryAttachOverlapping();
         }
 
         private void Update()
@@ -192,31 +199,118 @@ namespace OffAngle.Movement.Grapple
                 ResolveMiss();
         }
 
-        private void OnTriggerEnter(Collider other)
+        private void FixedUpdate()
         {
             if (!IsServerInitialized || !_initialized || _resolved) return;
 
-            if (_attackerRoot != null && other.transform.root == _attackerRoot)
-                return; // Never self-attach to the shooter's own colliders.
+            Vector3 current = _rigidbody.position;
+            Vector3 delta = current - _previousPosition;
+            float distance = delta.magnitude;
 
-            // Ground-effect zones (fire patches, Hadal Zone, ...) are triggers
-            // for occupant detection only, not real geometry - same reasoning
-            // Projectile.cs already excludes them for. Without this, their
-            // trigger collider reads as valid surface here, so a hook fired
-            // from inside (or through) one attaches to thin air at the
-            // zone's collider boundary instead of flying on to real
-            // geometry - the exact "grapple hits an invisible wall" symptom.
-            if (other.GetComponentInParent<GroundEffectZone>() != null)
-                return;
+            if (distance > 0.0001f)
+            {
+                Vector3 direction = delta / distance;
+                ServerTrySweepSegment(_previousPosition, direction, distance);
+            }
 
-            if (_ignoreDamageableEntities && other.GetComponentInParent<IDamageable>() != null)
-                return; // Entity - pass through untouched (see class header).
+            _previousPosition = _rigidbody.position;
+        }
 
-            if ((_excludedLayers.value & (1 << other.gameObject.layer)) != 0)
-                return; // Hard-excluded layer - pass through.
+        /// <summary>
+        /// Server-only. SphereCasts one flight segment. First valid hit calls
+        /// ResolveHit. Returns true if an attach ran.
+        /// </summary>
+        private bool ServerTrySweepSegment(Vector3 origin, Vector3 direction, float distance)
+        {
+            RaycastHit[] hits = Physics.SphereCastAll(
+                origin,
+                _castRadius,
+                direction,
+                distance,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            for (int i = 0; i < hits.Length; i++)
+            {
+                RaycastHit hit = hits[i];
+                if (!IsValidAttachTarget(hit.collider)) continue;
+
+                ResolveHit(hit.point, hit.normal);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Server-only. Attaches immediately if the hook spawned overlapping
+        /// valid geometry (SphereCast cannot see those colliders).
+        /// </summary>
+        private void TryAttachOverlapping()
+        {
+            if (_resolved) return;
+
+            Collider[] overlaps = Physics.OverlapSphere(
+                _rigidbody.position,
+                _castRadius,
+                ~0,
+                QueryTriggerInteraction.Ignore);
+
+            Collider best = null;
+            float bestDistSq = float.MaxValue;
+            Vector3 pos = _rigidbody.position;
+
+            for (int i = 0; i < overlaps.Length; i++)
+            {
+                Collider other = overlaps[i];
+                if (!IsValidAttachTarget(other)) continue;
+
+                float distSq = (other.bounds.ClosestPoint(pos) - pos).sqrMagnitude;
+                if (distSq < bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    best = other;
+                }
+            }
+
+            if (best == null) return;
+
+            GetSurfaceContact(best, out Vector3 point, out Vector3 normal);
+            ResolveHit(point, normal);
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (!IsServerInitialized || !_initialized || _resolved) return;
+            if (!IsValidAttachTarget(other)) return;
 
             GetSurfaceContact(other, out Vector3 point, out Vector3 normal);
             ResolveHit(point, normal);
+        }
+
+        private bool IsValidAttachTarget(Collider other)
+        {
+            if (other == null) return false;
+
+            if (_attackerRoot != null && other.transform.root == _attackerRoot)
+                return false;
+
+            // Ground-effect zones (fire patches, Hadal Zone, ...) are triggers
+            // for occupant detection only, not real geometry - same reasoning
+            // Projectile.cs already excludes them for. Sweep uses
+            // QueryTriggerInteraction.Ignore so this mainly backs OnTriggerEnter
+            // and OverlapSphere if a zone uses a solid collider.
+            if (other.GetComponentInParent<GroundEffectZone>() != null)
+                return false;
+
+            if (_ignoreDamageableEntities && other.GetComponentInParent<IDamageable>() != null)
+                return false;
+
+            if ((_excludedLayers.value & (1 << other.gameObject.layer)) != 0)
+                return false;
+
+            return true;
         }
 
         /// <summary>
@@ -225,21 +319,19 @@ namespace OffAngle.Movement.Grapple
         /// static twin) only supports Box/Sphere/Capsule/convex Mesh colliders
         /// and throws on anything else, which includes most non-convex
         /// terrain/level MeshColliders (exactly what world geometry tends to
-        /// use). Collider.Raycast has no such restriction - it works on every
-        /// collider type - so this casts from just behind the hook's current
-        /// position back along its direction of travel to find the real
-        /// surface point/normal it just flew into.
+        /// use). Casts from well behind the hook along travel so the ray
+        /// starts outside even when the hook has already tunneled into or
+        /// spawned inside the volume.
         /// </summary>
         private void GetSurfaceContact(Collider other, out Vector3 point, out Vector3 normal)
         {
-            Vector3 travelDir = _rigidbody.linearVelocity.sqrMagnitude > 0.0001f
-                ? _rigidbody.linearVelocity.normalized
-                : transform.forward;
+            Vector3 travelDir = TravelDirection();
 
-            const float castBack = 1f;
-            Ray ray = new Ray(transform.position - travelDir * castBack, travelDir);
+            const float castBack = 4f;
+            const float castLength = 8f;
+            Ray ray = new Ray(_rigidbody.position - travelDir * castBack, travelDir);
 
-            if (other.Raycast(ray, out RaycastHit hit, castBack + 0.5f))
+            if (other.Raycast(ray, out RaycastHit hit, castLength))
             {
                 point = hit.point;
                 normal = hit.normal;
@@ -248,10 +340,37 @@ namespace OffAngle.Movement.Grapple
 
             // Fallback: Bounds.ClosestPoint is plain AABB math with no
             // convexity requirement, so it never throws - just less precise
-            // on angled surfaces. Only reached if the raycast above somehow
-            // misses (e.g. the hook is already past the surface this frame).
-            point = other.bounds.ClosestPoint(transform.position);
+            // on angled surfaces.
+            point = other.bounds.ClosestPoint(_rigidbody.position);
             normal = -travelDir;
+        }
+
+        private Vector3 TravelDirection()
+        {
+            if (_rigidbody.linearVelocity.sqrMagnitude > 0.0001f)
+                return _rigidbody.linearVelocity.normalized;
+
+            Vector3 alongForward = transform.forward;
+            if (alongForward.sqrMagnitude > 0.0001f)
+                return alongForward.normalized;
+
+            return Vector3.forward;
+        }
+
+        private float ResolveCastRadius()
+        {
+            if (TryGetComponent(out SphereCollider sphere))
+            {
+                Vector3 scale = transform.lossyScale;
+                float maxScale = Mathf.Max(scale.x, Mathf.Max(scale.y, scale.z));
+                return Mathf.Max(0.01f, sphere.radius * maxScale);
+            }
+
+            Collider col = GetComponent<Collider>();
+            if (col == null) return 0.05f;
+
+            Bounds bounds = col.bounds;
+            return Mathf.Max(0.01f, Mathf.Max(bounds.extents.x, Mathf.Max(bounds.extents.y, bounds.extents.z)));
         }
 
         // ------------------------------------------------------------------
@@ -269,6 +388,7 @@ namespace OffAngle.Movement.Grapple
             _rigidbody.linearVelocity = Vector3.zero;
             _rigidbody.isKinematic = true;
             transform.position = point;
+            _previousPosition = point;
 
             RpcAttached(point, normal);
             _onResolved?.Invoke(true, point, normal);

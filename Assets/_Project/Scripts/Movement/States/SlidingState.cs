@@ -7,10 +7,12 @@
 //   either GroundedState.HandleCrouchSlide() (a fresh press while grounded)
 //   or AirborneState's landing block (CrouchSlide already held on landing -
 //   e.g. jump → hold slide → land). Both require horizontal speed >=
-//   SlideEntrySpeedThreshold. ctx.Velocity is inherited unmodified except for
-//   a downward clamp to SlideMaxSpeed if entry speed exceeds it - this
-//   preserves the Sprint → Slide momentum contract (see IMovementState.cs)
-//   while still giving designers a hard ceiling.
+//   SlideEntrySpeedThreshold. ctx.Velocity is inherited unmodified - same
+//   contract as WallRunningState.Enter(). Fast entries (grapple, downhill
+//   carry, bunny-hop) keep their speed; SlideMaxSpeed is not applied as an
+//   instant snap. Excess speed then decelerates via flat/uphill drag (or
+//   keeps building if the slide is already downhill). MaxPreservedSpeed is
+//   still a hard safety ceiling, same role it plays in GroundMomentum.
 //
 // TRANSITIONS OUT:
 //   !Controller.isGrounded            → Airborne  (velocity preserved -
@@ -20,22 +22,17 @@
 //                                                   velocity preserved,
 //                                                   vertical impulse added -
 //                                                   the "launch pad" feel)
-//   SlideTimer <= 0                   → Crouching (if key held) else Grounded
-//                                        (NEVER fires while moving meaningfully
-//                                        downhill - see DURATION below)
 //   horizontal speed < SlideMinSpeed  → Crouching (if key held) else Grounded
-//                                        (flat ground never decelerates on its
-//                                        own now, so this mainly fires when
-//                                        sliding uphill - see SPEED MODEL)
+//                                        (gated by the minimum-duration timer
+//                                        - see DURATION below)
 //
 // DURATION:
-//   SlideTimer only counts down while on flat ground or moving uphill.
-//   While the slide direction is meaningfully aligned with the slope's
-//   downhill direction (see ApplySlopeSpeed's isMovingDownhill /
-//   DownhillDotThreshold), the timer is frozen - a long downhill run is
-//   never cut short by SlideDuration (which is tuned for flat-ground
-//   slides). The slide still ends the moment speed drops below
-//   SlideMinSpeed or the player leaves the ground, downhill or not.
+//   SlideTimer is a MINIMUM lock, not a maximum. It always counts down from
+//   Settings.SlideDuration and only gates the SlideMinSpeed exit - a slide
+//   cannot end for being too slow until the timer elapses. After that the
+//   slide continues for as long as horizontal speed stays at or above
+//   SlideMinSpeed (downhill, leftover momentum, etc.). Leaving the ground
+//   or slide-jumping still exits immediately.
 //
 // CAPSULE:
 //   Deliberately does NOT touch CharacterController height/center. Crouch
@@ -53,15 +50,16 @@
 //   themselves, per the "don't reach into other systems" rule.
 //
 // SPEED MODEL:
-//   Flat ground holds speed CONSTANT - this state applies no ambient ground
-//   friction of its own. A single downward raycast each Tick finds the
-//   ground normal beneath the player; the slope's downhill direction then
-//   either assists (accelerates) or resists (decelerates) the current slide
-//   direction, scaled by SlideSlopeAcceleration. Set SlideSlopeAcceleration
-//   to 0 to disable slope sensitivity entirely - speed then never changes on
-//   its own while sliding (steering and the duration timer still apply, and
-//   duration is then never treated as "downhill" either, since that also
-//   depends on the same ground-normal/SlideSlopeAcceleration-gated query).
+//   Flat ground decelerates at SlideFlatDeceleration. A single downward
+//   raycast each Tick finds the ground normal beneath the player; the
+//   slope's downhill direction then either assists (accelerates) or resists
+//   (decelerates) the current slide direction, scaled by
+//   SlideSlopeAcceleration - the same angle factor in both directions.
+//   Uphill stacks that resistance on top of the flat deceleration, so a
+//   steeper climb bleeds speed faster than flat ground, matching how a
+//   steeper descent builds speed faster. Set SlideSlopeAcceleration to 0 to
+//   disable the slope term (flat deceleration still applies). Set
+//   SlideFlatDeceleration to 0 to disable the flat term.
 //
 //   Sliding meaningfully downhill is NOT capped at SlideMaxSpeed - it
 //   accelerates continuously up to MaxPreservedSpeed (the same global
@@ -69,8 +67,8 @@
 //   so a long slope keeps building speed instead of plateauing almost
 //   immediately. SlideMaxSpeed still applies once the player is on flat
 //   ground or moving uphill - but never by retroactively clamping speed
-//   already earned downhill back down; that speed simply holds (flat) or
-//   bleeds off via uphill resistance/SlideMinSpeed like normal.
+//   already earned downhill back down; that speed simply bleeds off via
+//   flat/uphill deceleration until it drops below SlideMinSpeed.
 //
 // GROUND CONTACT:
 //   The same ground-normal query also drives the Y component of the applied
@@ -113,12 +111,6 @@ namespace OffAngle.Movement.States
         // standing on anything this steep in practice.
         private const float MinSlopeNormalYForTangentVelocity = 0.2f;
 
-        // Minimum downhill alignment (dot product with the slope's downhill
-        // direction) required before a slide counts as "moving downhill" for
-        // the infinite-duration rule below - filters out near-flat/contour
-        // strafing so the timer doesn't flicker on/off near dot ≈ 0.
-        private const float DownhillDotThreshold = 0.15f;
-
         // ------------------------------------------------------------------
         // IMovementState implementation
         // ------------------------------------------------------------------
@@ -132,14 +124,15 @@ namespace OffAngle.Movement.States
             // again once this state exits.
             ctx.CrouchSlidePending = false;
 
-            // Clamp entry speed DOWN to the slide ceiling only; never clamp
-            // up. A slide entered below the ceiling keeps its true entry
-            // speed (Sprint → Slide momentum contract).
+            // Carry incoming horizontal speed in full - same as wall run.
+            // Do NOT clamp down to SlideMaxSpeed here; Tick's slope/flat
+            // speed model decelerates (or accelerates) from whatever we
+            // arrived with. MaxPreservedSpeed is the only hard safety cap.
             Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float speed = horizontal.magnitude;
-            if (speed > ctx.Settings.SlideMaxSpeed)
+            if (speed > ctx.Settings.MaxPreservedSpeed && speed > 0.001f)
             {
-                horizontal = horizontal.normalized * ctx.Settings.SlideMaxSpeed;
+                horizontal *= ctx.Settings.MaxPreservedSpeed / speed;
                 ctx.Velocity.x = horizontal.x;
                 ctx.Velocity.z = horizontal.z;
             }
@@ -186,22 +179,17 @@ namespace OffAngle.Movement.States
             bool onSlope = SlopeUtility.TryGetGroundNormal(ctx, out Vector3 groundNormal);
 
             // ── 4. Slope-aware speed update ───────────────────────────────
-            bool isMovingDownhill = ApplySlopeSpeed(ctx, deltaTime, onSlope, groundNormal);
+            ApplySlopeSpeed(ctx, deltaTime, onSlope, groundNormal);
 
-            // ── 5. Timer + minimum-speed exit checks ──────────────────────
-            // A slide moving meaningfully downhill never expires by time -
-            // only by slowing below SlideMinSpeed (e.g. the slope flattens
-            // out) or by leaving the ground. Without this, a long downhill
-            // slide would still get cut short mid-descent purely because
-            // SlideDuration (tuned for flat-ground slides) ran out. Flat
-            // ground and uphill slides use the normal timer unchanged.
-            if (!isMovingDownhill)
-                ctx.SlideTimer -= deltaTime;
+            // ── 5. Minimum-duration lock + speed exit ─────────────────────
+            // SlideDuration is a floor, not a ceiling: the slide always lasts
+            // at least that long, then continues until speed drops below
+            // SlideMinSpeed (or the player leaves the ground / slide-jumps).
+            ctx.SlideTimer -= deltaTime;
 
             float horizontalSpeed = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z).magnitude;
-
-            bool timeExpired = !isMovingDownhill && ctx.SlideTimer <= 0f;
-            bool tooSlow      = horizontalSpeed < ctx.Settings.SlideMinSpeed;
+            bool minDurationElapsed = ctx.SlideTimer <= 0f;
+            bool tooSlow = horizontalSpeed < ctx.Settings.SlideMinSpeed;
 
             // ── 6. Slope-tangent vertical velocity + move ─────────────────
             ApplyGroundVelocityY(ctx, onSlope, groundNormal);
@@ -212,7 +200,7 @@ namespace OffAngle.Movement.States
             SlopeUtility.MoveWithGroundSnap(ctx, ctx.Velocity * deltaTime, ctx.Settings.GroundSnapDistance);
 
             // ── 7. Exit ────────────────────────────────────────────────────
-            if (timeExpired || tooSlow)
+            if (minDurationElapsed && tooSlow)
             {
                 ctx.StateMachine.TransitionTo(
                     ctx.IsCrouchSlideHeld ? MovementStateId.Crouching : MovementStateId.Grounded);
@@ -257,20 +245,32 @@ namespace OffAngle.Movement.States
 
             // Same acceleration-based steering model as AirborneState's air
             // control - preserves slide speed/momentum while still letting
-            // the player nudge direction. Normalized once and reused instead
-            // of calling wishDir.normalized twice.
+            // the player nudge direction. Magnitude is not allowed to grow
+            // here; speed changes belong to ApplySlopeSpeed (flat/uphill
+            // drag, downhill assist). Normalized once and reused instead of
+            // calling wishDir.normalized twice.
+            float originalSpeed = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z).magnitude;
             Vector3 wishDirNormalized = wishDir.normalized;
             float accel = ctx.Settings.SlideSteerAcceleration * ctx.SpeedMultiplier;
             ctx.Velocity.x += wishDirNormalized.x * accel * deltaTime;
             ctx.Velocity.z += wishDirNormalized.z * accel * deltaTime;
+
+            Vector3 steered = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
+            float steeredSpeed = steered.magnitude;
+            if (steeredSpeed > originalSpeed && steeredSpeed > 0.001f)
+            {
+                steered *= originalSpeed / steeredSpeed;
+                ctx.Velocity.x = steered.x;
+                ctx.Velocity.z = steered.z;
+            }
         }
 
-        /// <summary>Returns true if the player is currently sliding meaningfully downhill (see DownhillDotThreshold) - used to gate the infinite-duration rule in Tick().</summary>
-        private bool ApplySlopeSpeed(MovementStateContext ctx, float deltaTime, bool onSlope, Vector3 groundNormal)
+        /// <summary>Applies flat-ground drag and slope assist/resistance. Any downhill alignment skips the flat drag and raises the speed ceiling.</summary>
+        private void ApplySlopeSpeed(MovementStateContext ctx, float deltaTime, bool onSlope, Vector3 groundNormal)
         {
             Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float speed = horizontal.magnitude;
-            if (speed < 0.001f) return false;
+            if (speed < 0.001f) return;
 
             Vector3 direction = horizontal / speed;
             float slopeAccel = 0f;
@@ -280,17 +280,23 @@ namespace OffAngle.Movement.States
             {
                 // Downhill direction of the slope the player is standing on.
                 // Positive dot with the slide direction = sliding downhill
-                // (assist); negative = sliding uphill (resistance).
+                // (assist); negative = sliding uphill (resistance). Magnitude
+                // scales with slope angle the same way in both directions.
                 Vector3 downhill = Vector3.ProjectOnPlane(Vector3.down, groundNormal).normalized;
                 float downhillDot = Vector3.Dot(direction, downhill);
                 slopeAccel = downhillDot * ctx.Settings.SlideSlopeAcceleration;
-                isMovingDownhill = downhillDot > DownhillDotThreshold;
+                // Any downhill alignment assists; do not require a dead-zone
+                // or shallow descents pick up flat drag and feel like they
+                // slow down on the way down.
+                isMovingDownhill = downhillDot > 0f;
             }
 
-            // No baseline ambient friction: flat ground (slopeAccel == 0)
-            // holds speed exactly constant ("flat speed"). Only an actual
-            // slope changes it.
-            //
+            // Flat and uphill bleed speed. Any downhill alignment keeps the
+            // angle-scaled assist only - no extra SlideFlatDeceleration, so
+            // a descent never net-decelerates from the flat term.
+            if (!isMovingDownhill)
+                slopeAccel -= ctx.Settings.SlideFlatDeceleration;
+
             // Sliding meaningfully downhill accelerates continuously past
             // SlideMaxSpeed, capped only by MaxPreservedSpeed (the same
             // global safety ceiling GroundMomentum uses for grapples/
@@ -301,9 +307,9 @@ namespace OffAngle.Movement.States
             // is never allowed to be LOWER than the speed already carried in
             // (Mathf.Max) - so the moment a fast downhill run levels out
             // onto flat ground or starts climbing, that earned speed is
-            // preserved (and decays naturally via uphill resistance/duration/
-            // SlideMinSpeed) instead of being instantly clamped down to
-            // SlideMaxSpeed.
+            // preserved (and decays via flat/uphill drag until it drops
+            // below SlideMinSpeed) instead of being instantly clamped down
+            // to SlideMaxSpeed.
             float ceiling = isMovingDownhill ? ctx.Settings.MaxPreservedSpeed : ctx.Settings.SlideMaxSpeed;
             ceiling = Mathf.Max(speed, ceiling);
             float newSpeed = Mathf.Clamp(speed + slopeAccel * deltaTime, 0f, ceiling);
@@ -311,8 +317,6 @@ namespace OffAngle.Movement.States
             horizontal = direction * newSpeed;
             ctx.Velocity.x = horizontal.x;
             ctx.Velocity.z = horizontal.z;
-
-            return isMovingDownhill;
         }
 
         /// <summary>

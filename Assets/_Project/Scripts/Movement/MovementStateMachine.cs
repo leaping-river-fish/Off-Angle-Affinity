@@ -244,11 +244,13 @@ namespace OffAngle.Movement
             _ctx.CrouchAmount = 0f;
             _ctx.NextCrouchAllowedTime = 0f;
 
-            // Slide bookkeeping: SlideTimer = 0 means a state frozen mid-slide
-            // by death self-heals into Grounded/Crouching on its very first
-            // Tick after respawn (see SlidingState.Tick()'s timeExpired check) -
-            // no separate "force exit" call needed. Cooldown is also cleared
-            // so death/respawn never leaves a lingering slide lockout.
+            // Slide bookkeeping: SlideTimer = 0 means the minimum-duration
+            // lock is already elapsed, so a state frozen mid-slide by death
+            // self-heals into Grounded/Crouching on its very first Tick after
+            // respawn once speed is also below SlideMinSpeed (see
+            // SlidingState.Tick()) - no separate "force exit" call needed.
+            // Cooldown is also cleared so death/respawn never leaves a
+            // lingering slide lockout.
             _ctx.SlideTimer = 0f;
             _ctx.NextSlideAllowedTime = 0f;
 

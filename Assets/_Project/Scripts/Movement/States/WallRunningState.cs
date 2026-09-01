@@ -17,6 +17,9 @@
 //                                                     preserve XZ, zero Y, add
 //                                                     up + look-scaled side kick)
 //   Tangential speed < WallRunMinSpeed  → Airborne
+//   Realized capsule speed blocked      → Airborne  (planned velocity still
+//                                                     high but Move is eaten
+//                                                     by a corner / facet)
 //   WallRunElapsedTime >= WallRunDuration → Airborne
 //   Lost wall contact                   → Airborne  (soft exit)
 //   Controller.isGrounded               → Grounded
@@ -39,9 +42,15 @@ namespace OffAngle.Movement.States
         private WallSide _side;
         private Vector3  _smoothedNormal;
         private Vector3  _tangent;
+        private float    _blockedTime;
 
         // Max meters of wall-gap closed per Tick when hugging curved geometry.
         private const float MaxWallHugCorrection = 0.2f;
+
+        // Seconds of "planned speed is fine but the capsule is not moving"
+        // before dropping. Absorbs a mesh-seam hitch; a true 0 m/s corner
+        // still drops within a few frames.
+        private const float BlockedDropTime = 0.08f;
 
         // Minimum side peel as a fraction of WallJumpOutwardForce when look
         // is along/into the wall - enough to clear the surface, not enough to
@@ -60,6 +69,7 @@ namespace OffAngle.Movement.States
                 return;
 
             _active = true;
+            _blockedTime = 0f;
             _side = wall.Side;
             _smoothedNormal = wall.Normal;
             ctx.WallRunSide = _side;
@@ -141,7 +151,9 @@ namespace OffAngle.Movement.States
             }
 
             // ── 3. Re-detect wall ─────────────────────────────────────────
-            if (!WallDetection.TryFindWall(ctx, _side, _smoothedNormal, out WallHit wall))
+            Vector3 lookHint = ctx.PlayerTransform.forward;
+            lookHint.y = 0f;
+            if (!WallDetection.TryFindWall(ctx, _side, _smoothedNormal, lookHint, out WallHit wall))
             {
                 SoftExitLostContact(ctx);
                 return;
@@ -204,6 +216,27 @@ namespace OffAngle.Movement.States
 
             ctx.Velocity = _tangent * tangentialSpeed;
             ApplyWallMotion(ctx, deltaTime, wall);
+
+            // HUD speed is CharacterController.velocity (actual displacement).
+            // Planned ctx.Velocity stays high when Move is eaten by a corner
+            // or facing facet, so min-speed above never fires. Drop once the
+            // capsule has been blocked long enough that it is not a seam hitch.
+            float realizedSpeed = new Vector3(
+                ctx.Controller.velocity.x, 0f, ctx.Controller.velocity.z).magnitude;
+            if (realizedSpeed < ctx.Settings.WallRunMinSpeed)
+            {
+                _blockedTime += deltaTime;
+                if (_blockedTime >= BlockedDropTime)
+                {
+                    // Zero XZ so Airborne cannot re-stick on ghost planned speed.
+                    ctx.Velocity = new Vector3(0f, ctx.Velocity.y, 0f);
+                    ctx.StateMachine.TransitionTo(MovementStateId.Airborne);
+                }
+            }
+            else
+            {
+                _blockedTime = 0f;
+            }
         }
 
         public void FixedTick(MovementStateContext ctx, float fixedDeltaTime) { }
@@ -218,6 +251,7 @@ namespace OffAngle.Movement.States
 
             ctx.WallRunSide = WallSide.None;
             _active = false;
+            _blockedTime = 0f;
         }
 
         // ------------------------------------------------------------------
