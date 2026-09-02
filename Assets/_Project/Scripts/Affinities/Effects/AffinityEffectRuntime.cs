@@ -16,8 +16,8 @@
 //
 // WHY OnRespawn EXISTS:
 //   MovementStateMachine.ResetTransientInput() wipes SpeedMultiplier and
-//   GravityMultiplier back to 1, and it runs on respawn AND on every input
-//   state change. Anything an effect pushed directly into the movement context
+//   GravityMultiplier back to 1. It runs on death, respawn, and menu — not
+//   on pause. Anything an effect pushed directly into the movement context
 //   has to be re-pushed here. Effects that route through PlayerStats instead
 //   are unaffected and can ignore this hook entirely.
 //

@@ -220,14 +220,16 @@ namespace OffAngle.Movement
         public bool CanStartMovementAction() => CanUseMovementAbilities;
 
         /// <summary>
-        /// Clears input carried over while this component was disabled.
+        /// Full locomotion wipe for death, respawn, and menu. Zeros velocity,
+        /// interrupts ability drivers, and clears slide/wall-run/crouch bookkeeping.
         /// JumpPending/CrouchSlidePending are set by input event subscriptions
         /// that run regardless of this component's enabled state (Unity's
         /// enabled flag only pauses Update/FixedUpdate, not manual delegate
         /// subscriptions) - a press during death would otherwise sit pending
         /// and fire as a surprise action the instant movement resumes.
         /// PlayerLifecycleController calls this on respawn, before re-enabling
-        /// this component.
+        /// this component. Pause must not call this — the pause overlay is not
+        /// a world pause, so locomotion and ability drivers keep running.
         /// </summary>
         public void ResetTransientInput()
         {
@@ -440,21 +442,33 @@ namespace OffAngle.Movement
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// React to PlayerInputStateController state changes. Movement is
-        /// only active during Gameplay state; Menu and Dead states disable
-        /// movement updates and clear transient input.
+        /// React to PlayerInputStateController state changes. Movement Ticks
+        /// during Gameplay and while the pause overlay is open (local UI only;
+        /// the match keeps simulating). Menu and Dead disable updates and fully
+        /// wipe locomotion. Closing pause must not wipe velocity or drivers.
         /// </summary>
         private void HandleInputStateChanged(PlayerInputState oldState, PlayerInputState newState)
         {
             switch (newState)
             {
                 case PlayerInputState.Gameplay:
-                    // Re-enable movement when returning to gameplay from menu or respawn.
+                    // Re-enable movement when returning to gameplay from menu, pause, or respawn.
                     // This component's enabled state controls whether Update/FixedUpdate run.
                     enabled = true;
-                    // Clear any stale input that accumulated while disabled (e.g., a jump
-                    // press during death that would otherwise fire on respawn).
-                    ResetTransientInput();
+                    if (oldState == PlayerInputState.Paused)
+                    {
+                        // Maps just re-enabled; drop buffered actions without
+                        // wiping velocity or an in-flight ability driver.
+                        if (_ctx != null)
+                        {
+                            _ctx.JumpPending = false;
+                            _ctx.CrouchSlidePending = false;
+                        }
+                    }
+                    else
+                    {
+                        ResetTransientInput();
+                    }
                     break;
 
                 case PlayerInputState.Menu:
@@ -473,6 +487,12 @@ namespace OffAngle.Movement
                     // the state system to ensure consistent behavior.
                     enabled = false;
                     ResetTransientInput();
+                    break;
+
+                case PlayerInputState.Paused:
+                    // Overlay only: keep Tick/FixedTick running so momentum,
+                    // gravity, and ability drivers continue with the match.
+                    // Do not wipe locomotion — that is what made unpause a reset.
                     break;
             }
         }
