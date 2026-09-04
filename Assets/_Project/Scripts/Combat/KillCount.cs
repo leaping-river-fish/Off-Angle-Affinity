@@ -10,9 +10,9 @@
 //   and self-filters by comparing DeathInfo.Attacker against its own
 //   NetworkObject, the same "no central router, everyone subscribes and
 //   filters" idiom CombatMemory already uses for its own relationship
-//   tracking. A death with no attacker (a hypothetical future environmental
-//   hazard) or a self-inflicted one awards nobody a kill - matching
-//   CombatMemory's own exclusion rule.
+//   tracking. A death with no attacker (FallOffMapKill / other hazards)
+//   or a self-inflicted one awards nobody a kill - matching CombatMemory's
+//   own exclusion rule.
 //
 // WHY THIS RELIES ON AnyPlayerDied RATHER THAN Health.OnServerDied DIRECTLY:
 //   AnyPlayerDied is already documented as the purpose-built hook for
@@ -135,9 +135,9 @@ namespace OffAngle.Combat
             NetworkObject self = base.NetworkObject;
             if (self == null) return;
 
-            // No credit for an unattributed (hypothetical future environmental)
-            // death, or a self-inflicted one - same exclusion CombatMemory
-            // applies to its own relationship tracking.
+            // No credit for an unattributed environmental death, or a
+            // self-inflicted one - same exclusion CombatMemory applies to
+            // its own relationship tracking.
             if (info.Attacker == null || info.Attacker == info.Victim) return;
             if (info.Attacker != self) return;
 

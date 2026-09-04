@@ -182,15 +182,12 @@ namespace OffAngle.Combat
             _lifeState.Value = PlayerLifeState.Dead;
             _shield?.SetRegenLocked(true);
 
-            string weaponLabel = info.Weapon != null ? info.Weapon.name : "Unknown";
+            string weaponLabel = ResolveWeaponLabel(info);
             float respawnDuration = _respawner != null ? _respawner.RespawnDelay : 0f;
 
-            // NOTE: info.Attacker is always populated today (PlayerWeaponController.
-            // CmdFire always passes base.NetworkObject) - hitscan is the only damage
-            // source. If a future damage source (hazards, self-damage) can leave
-            // Attacker null, verify the installed FishNet version handles a null
-            // NetworkObject RPC argument cleanly (older builds logged an error for
-            // this; fixed upstream in 4.3.8+).
+            // FallOffMapKill (and other hazards) pass a null Attacker. FishNet
+            // 4.3.8+ accepts a null NetworkObject RPC argument; older builds
+            // logged an error for this.
             RpcOnDied(info.Attacker, weaponLabel, respawnDuration);
         }
 
@@ -325,6 +322,19 @@ namespace OffAngle.Combat
         {
             if (_deathCameraRoot != null) _deathCameraRoot.SetActive(false);
             if (_firstPersonCameraRoot != null) _firstPersonCameraRoot.SetActive(true);
+        }
+
+        private static string ResolveWeaponLabel(DamageInfo info)
+        {
+            if (info.Weapon != null)
+                return info.Weapon.name;
+
+            // Hazard / fall-off: no GunData. FallOffMapKill is the only null
+            // attacker + null weapon path today.
+            if (info.Attacker == null)
+                return FallOffMapKill.DeathWeaponLabel;
+
+            return "Unknown";
         }
 
         // ------------------------------------------------------------------
