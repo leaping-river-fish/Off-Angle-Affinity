@@ -4,7 +4,9 @@
 // Not networked. Spawned by DamageNumberSpawner on every peer in response to
 // Health.DamageFeedback. Rises, fades, and self-destroys after Lifetime.
 //
-// Affinity tinting is placeholder cosmetic — no gameplay effect.
+// Color is the last pool the hit reached (cyan if fully absorbed by shield,
+// affinity tint if any damage reached health). Font weight is the hit zone
+// (bold for Critical/headshot). Affinity tinting is placeholder cosmetic.
 // =============================================================================
 
 using OffAngle.Combat;
@@ -15,6 +17,9 @@ namespace OffAngle.UI.Combat
 {
     public class FloatingDamageNumber : MonoBehaviour
     {
+        private static readonly Color ShieldColor = new Color(0.40f, 0.80f, 1.00f);
+        private static readonly Color HealColor = new Color(0.40f, 1.00f, 0.40f);
+
         [SerializeField] private TMP_Text _text;
         [SerializeField, Min(0.1f)] private float _lifetime = 1f;
         [SerializeField] private float _riseSpeed = 1.5f;
@@ -27,12 +32,16 @@ namespace OffAngle.UI.Combat
         // Public — called immediately after Instantiate
         // ------------------------------------------------------------------
 
-        public void Initialize(float amount, AffinityType affinity, DamageCategory category)
+        public void Initialize(float shieldAmount, float healthAmount, AffinityType affinity, DamageCategory category)
         {
             if (_text != null)
             {
-                _text.text = Mathf.CeilToInt(amount).ToString();
-                _baseColor = ColorForCategory(category, affinity);
+                float total = shieldAmount + healthAmount;
+                _text.text = Mathf.CeilToInt(total).ToString();
+                _text.fontStyle = category == DamageCategory.Critical
+                    ? FontStyles.Bold
+                    : FontStyles.Normal;
+                _baseColor = ColorForPopup(healthAmount, affinity, category);
                 _text.color = _baseColor;
             }
             _spawnTime = Time.time;
@@ -74,18 +83,19 @@ namespace OffAngle.UI.Combat
         }
 
         // ------------------------------------------------------------------
-        // Category color mapping — category wins over affinity; Normal falls
-        // back to the existing elemental tint so affinity flavor still shows.
+        // Color: last pool (health vs shield). Heal keeps its own tint.
+        // Headshots are the same color, distinguished by bold weight.
         // ------------------------------------------------------------------
-        private static Color ColorForCategory(DamageCategory category, AffinityType affinity)
+
+        private static Color ColorForPopup(float healthAmount, AffinityType affinity, DamageCategory category)
         {
-            switch (category)
-            {
-                case DamageCategory.Critical: return new Color(1.00f, 0.85f, 0.10f); // gold
-                case DamageCategory.Shield:   return new Color(0.40f, 0.80f, 1.00f); // cyan
-                case DamageCategory.Heal:     return new Color(0.40f, 1.00f, 0.40f); // green
-                default:                      return ColorForAffinity(affinity);
-            }
+            if (category == DamageCategory.Heal)
+                return HealColor;
+
+            if (healthAmount > 0f)
+                return ColorForAffinity(affinity);
+
+            return ShieldColor;
         }
 
         // ------------------------------------------------------------------

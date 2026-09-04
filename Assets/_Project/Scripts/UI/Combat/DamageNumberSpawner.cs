@@ -56,12 +56,17 @@ namespace OffAngle.UI.Combat
         // Event handler
         // ------------------------------------------------------------------
 
-        private void HandleDamageFeedback(Vector3 position, float amount, AffinityType affinity, DamageCategory category)
+        private void HandleDamageFeedback(
+            Vector3 position,
+            float shieldAmount,
+            float healthAmount,
+            AffinityType affinity,
+            DamageCategory category)
         {
             if (_prefab == null) return;
 
             FloatingDamageNumber n = Instantiate(_prefab, position, Quaternion.identity);
-            n.Initialize(amount, affinity, category);
+            n.Initialize(shieldAmount, healthAmount, affinity, category);
         }
     }
 }

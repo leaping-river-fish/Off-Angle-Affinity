@@ -13,9 +13,10 @@
 //     SyncVar changes; UI subscribes here.
 //   - OnServerDied fires only on the server the first frame CurrentHealth hits
 //     zero. Respawner subscribes here.
-//   - DamageFeedback is a static event carrying (position, amount, affinity)
-//     for pure-UX feedback (damage numbers). Keeps gameplay -> UI dependency
-//     inverted: UI subscribes to gameplay, never the reverse.
+//   - DamageFeedback is a static event carrying (position, shieldAmount,
+//     healthAmount, affinity, category) for pure-UX feedback (damage numbers).
+//     Keeps gameplay -> UI dependency inverted: UI subscribes to gameplay,
+//     never the reverse.
 //   - ServerDamageApplied is a SERVER-ONLY static event carrying the finished
 //     numbers. Unlike DamageFeedback it never leaves the server and is meant
 //     for gameplay, not UX: ultimate charge, CombatMemory, and any future
@@ -78,9 +79,11 @@ namespace OffAngle.Combat
 
         /// <summary>
         /// Global damage-feedback broadcast (all Health instances funnel through here).
-        /// Args: (worldHitPoint, amount, affinity). UI subscribes; gameplay does not.
+        /// Args: (worldHitPoint, shieldAmount, healthAmount, affinity, category).
+        /// UI subscribes; gameplay does not. Category is the hit's original
+        /// Normal/Critical (never overwritten to Shield).
         /// </summary>
-        public static event Action<Vector3, float, AffinityType, DamageCategory> DamageFeedback;
+        public static event Action<Vector3, float, float, AffinityType, DamageCategory> DamageFeedback;
 
         /// <summary>
         /// Server-only. Fires after damage has actually landed on any entity.
@@ -173,7 +176,7 @@ namespace OffAngle.Combat
             {
                 // Fully absorbed by the shield — health untouched, but still give the
                 // client a damage-number popup so the hit feels acknowledged.
-                RpcOnDamaged(info.HitPoint, absorbed, info.Affinity, DamageCategory.Shield);
+                RpcOnDamaged(info.HitPoint, absorbed, 0f, info.Affinity, info.Category);
                 ServerDamageApplied?.Invoke(base.NetworkObject, info, absorbed);
                 return;
             }
@@ -184,7 +187,7 @@ namespace OffAngle.Combat
             float next = Mathf.Max(0f, previous - toHealth);
             _current.Value = next;
 
-            RpcOnDamaged(info.HitPoint, toHealth, info.Affinity, info.Category);
+            RpcOnDamaged(info.HitPoint, absorbed, toHealth, info.Affinity, info.Category);
 
             // Before OnServerDied, so a killing blow still awards its charge and is
             // still recorded in the attacker's combat memory.
@@ -229,9 +232,14 @@ namespace OffAngle.Combat
         // ------------------------------------------------------------------
 
         [ObserversRpc]
-        private void RpcOnDamaged(Vector3 hitPoint, float amount, AffinityType affinity, DamageCategory category)
+        private void RpcOnDamaged(
+            Vector3 hitPoint,
+            float shieldAmount,
+            float healthAmount,
+            AffinityType affinity,
+            DamageCategory category)
         {
-            DamageFeedback?.Invoke(hitPoint, amount, affinity, category);
+            DamageFeedback?.Invoke(hitPoint, shieldAmount, healthAmount, affinity, category);
         }
 
         // ------------------------------------------------------------------
