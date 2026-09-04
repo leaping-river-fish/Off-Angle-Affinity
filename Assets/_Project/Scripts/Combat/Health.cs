@@ -154,6 +154,11 @@ namespace OffAngle.Combat
             // A modifier is allowed to reduce a hit to nothing.
             if (shieldable <= 0f && shieldBypass <= 0f) return;
 
+            // Any landed hit restarts shield regen, including leftover that
+            // went to health after the shield broke and shield-bypass damage
+            // that never called AbsorbDamage.
+            _shield?.NotifyDamaged();
+
             float absorbed = 0f;
             float toHealth = shieldBypass;
 

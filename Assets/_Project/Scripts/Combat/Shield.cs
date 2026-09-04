@@ -151,11 +151,19 @@ namespace OffAngle.Combat
 
             float absorbed = Mathf.Min(_current.Value, amount);
             _current.Value -= absorbed;
-
-            if (absorbed > 0f)
-                _lastDamageTime = Time.time;
-
             return amount - absorbed;
+        }
+
+        /// <summary>
+        /// Server-only. Restarts the regen delay. Called by Health for every
+        /// hit that lands — shield, health, or bypass — so regen does not
+        /// begin while the player is still taking damage after the shield
+        /// is already empty.
+        /// </summary>
+        public void NotifyDamaged()
+        {
+            if (!IsServerInitialized) return;
+            _lastDamageTime = Time.time;
         }
 
         /// <summary>Server-only. Restores shield to MaxShield. Mirrors Health.ResetHealth().</summary>

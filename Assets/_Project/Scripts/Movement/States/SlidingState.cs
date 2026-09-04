@@ -7,12 +7,14 @@
 //   either GroundedState.HandleCrouchSlide() (a fresh press while grounded)
 //   or AirborneState's landing block (CrouchSlide already held on landing -
 //   e.g. jump → hold slide → land). Both require horizontal speed >=
-//   SlideEntrySpeedThreshold. ctx.Velocity is inherited unmodified - same
-//   contract as WallRunningState.Enter(). Fast entries (grapple, downhill
-//   carry, bunny-hop) keep their speed; SlideMaxSpeed is not applied as an
-//   instant snap. Excess speed then decelerates via flat/uphill drag (or
-//   keeps building if the slide is already downhill). MaxPreservedSpeed is
-//   still a hard safety ceiling, same role it plays in GroundMomentum.
+//   SlideEntrySpeedThreshold. Horizontal speed is then raised to at least
+//   SlideMaxSpeed (the sprint-into-slide boost) so a flat slide starts
+//   faster than a sprint instead of immediately bleeding off from walk/
+//   sprint speed. Fast entries (grapple, downhill carry, bunny-hop) keep
+//   their speed; SlideMaxSpeed is never applied as a snap-down. Excess
+//   speed then decelerates via flat/uphill drag (or keeps building if the
+//   slide is already downhill). MaxPreservedSpeed is still a hard safety
+//   ceiling, same role it plays in GroundMomentum.
 //
 // TRANSITIONS OUT:
 //   !Controller.isGrounded            → Airborne  (velocity preserved -
@@ -124,18 +126,37 @@ namespace OffAngle.Movement.States
             // again once this state exits.
             ctx.CrouchSlidePending = false;
 
-            // Carry incoming horizontal speed in full - same as wall run.
-            // Do NOT clamp down to SlideMaxSpeed here; Tick's slope/flat
+            // Raise slow entries up to SlideMaxSpeed so sprint-into-slide
+            // is a speed boost, then decelerates from there. Do NOT clamp
+            // faster entries down to SlideMaxSpeed; Tick's slope/flat
             // speed model decelerates (or accelerates) from whatever we
             // arrived with. MaxPreservedSpeed is the only hard safety cap.
             Vector3 horizontal = new Vector3(ctx.Velocity.x, 0f, ctx.Velocity.z);
             float speed = horizontal.magnitude;
-            if (speed > ctx.Settings.MaxPreservedSpeed && speed > 0.001f)
+            float minEntry = ctx.Settings.SlideMaxSpeed * ctx.SpeedMultiplier;
+            float maxEntry = ctx.Settings.MaxPreservedSpeed;
+            if (minEntry > maxEntry)
+                minEntry = maxEntry;
+
+            if (speed < 0.001f)
             {
-                horizontal *= ctx.Settings.MaxPreservedSpeed / speed;
-                ctx.Velocity.x = horizontal.x;
-                ctx.Velocity.z = horizontal.z;
+                Vector3 fallback = ctx.PlayerTransform.forward;
+                fallback.y = 0f;
+                if (fallback.sqrMagnitude < 0.001f)
+                    fallback = Vector3.forward;
+                horizontal = fallback.normalized * minEntry;
             }
+            else if (speed < minEntry)
+            {
+                horizontal *= minEntry / speed;
+            }
+            else if (speed > maxEntry)
+            {
+                horizontal *= maxEntry / speed;
+            }
+
+            ctx.Velocity.x = horizontal.x;
+            ctx.Velocity.z = horizontal.z;
         }
 
         public void Tick(MovementStateContext ctx, float deltaTime)

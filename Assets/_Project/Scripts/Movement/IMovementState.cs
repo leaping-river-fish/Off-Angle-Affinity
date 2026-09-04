@@ -28,9 +28,11 @@
 // CHAINABLE SEQUENCES (momentum MUST be preserved across these)
 // ───────────────────────────────────────────────────────────────────────────
 //   Sprint → Slide
-//     Entry speed = current horizontal speed (sprint, leftover momentum,
-//     etc.). Not snapped to SlideMaxSpeed. Flat/uphill then decelerate
-//     from that inherited speed; downhill accelerates from it.
+//     Horizontal speed is raised to at least SlideMaxSpeed on entry (the
+//     sprint-into-slide boost). Faster entries (grapple, downhill,
+//     leftover momentum) keep their speed; never snapped down to
+//     SlideMaxSpeed. Flat/uphill then decelerate from that speed;
+//     downhill accelerates from it.
 //
 //   Slide → Jump
 //     Full horizontal velocity is preserved + vertical impulse added.

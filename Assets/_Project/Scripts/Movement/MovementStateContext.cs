@@ -15,7 +15,7 @@
 //      Tick by the active state. Do not reset them in Enter() or Exit().
 //
 // MOMENTUM CHAIN REFERENCE (see IMovementState.cs for full details):
-//   Sprint → Slide  : entry speed = sprint speed; slide decelerates from there
+//   Sprint → Slide  : entry speed raised to at least SlideMaxSpeed; slide decelerates from there
 //   Slide  → Jump   : horizontal velocity preserved + vertical impulse
 //   Jump   → WallRun: auto-enter on qualifying wall contact at speed threshold
 //   WallRun→ Jump   : perpendicular wall kick + preserve wall-parallel speed
@@ -422,8 +422,8 @@ namespace OffAngle.Movement
         public float SlideEntrySpeedThreshold = 4f;
         [Tooltip("Minimum seconds a slide lasts before it can end for dropping below SlideMinSpeed. After this, the slide continues for as long as horizontal speed stays at or above SlideMinSpeed. Does not delay slide-jump or sliding off a ledge.")]
         public float SlideDuration            = 0.5f;
-        [Tooltip("Soft speed ceiling (m/s) while sliding on flat ground or uphill. Entry speed is NOT snapped to this - a faster entry keeps its momentum and then decelerates from there (same idea as WallRunMaxSpeed). Does NOT cap sliding downhill - that accelerates continuously up to MaxPreservedSpeed.")]
-        public float SlideMaxSpeed            = 9f;
+        [Tooltip("Target slide speed (m/s). On entry, slower slides (e.g. sprint) are boosted up to this value so sliding is a speed boost; faster entries keep their momentum. Also the soft ceiling while sliding on flat ground or uphill. Does NOT cap sliding downhill - that accelerates continuously up to MaxPreservedSpeed.")]
+        public float SlideMaxSpeed            = 14f;
         [Tooltip("Horizontal speed (m/s) below which an active slide automatically ends. Should be lower than SlideEntrySpeedThreshold.")]
         public float SlideMinSpeed            = 2.5f;
         [Tooltip("Seconds after a slide ends before another slide can begin. Independent of CrouchCooldown so slide-spam prevention can be tuned separately from crouch-spam prevention.")]
