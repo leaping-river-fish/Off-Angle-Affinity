@@ -1,7 +1,7 @@
 // =============================================================================
 // HadalZoneGroundEffectPayload — Tide's Hadal Zone ultimate. A pure enter/exit
-// debuff (no damage, so OnTick is a no-op): grounds (blocks jumping) and
-// nearsights (narrows FOV) anyone standing in the zone, reverted the moment
+// debuff (no damage, so OnTick is a no-op): grounds (blocks jumping),
+// slows, and nearsights (narrows FOV) anyone standing in the zone, reverted the moment
 // they leave - either by walking out or by the zone expiring, since
 // GroundEffectZone.ServerEndAllOccupants() forces OnExit on every remaining
 // occupant before despawn. Excludes the zone's own creator, same convention
@@ -32,6 +32,11 @@ namespace OffAngle.Combat
         [Tooltip("Field of view (degrees) eased to while inside. Lower = more tunnel-visioned.")]
         [SerializeField, Range(10f, 90f)] private float _nearsightFov = 35f;
 
+        [Header("Slowed")]
+        [SerializeField] private bool _slowed = true;
+        [Tooltip("Movement speed multiplier while inside. 1f = no change, 0.7f = 70% speed, 2f = 200% speed.")]
+        [SerializeField, Range(0.1f, 2f)] private float _slowedSpeedMultiplier = 0.7f;
+
         [Header("Muffled (future - no sound system yet)")]
         [SerializeField] private bool _muffled = true;
 
@@ -42,6 +47,7 @@ namespace OffAngle.Combat
 
             if (_grounded) occupant.StatusEffects.ServerApplyGrounded();
             if (_nearsighted) occupant.StatusEffects.ServerApplyNearsighted(_nearsightFov);
+            if (_slowed) occupant.StatusEffects.ServerApplySlowed(_slowedSpeedMultiplier);
             // _muffled: no-op until a sound system exists.
         }
 
@@ -54,6 +60,7 @@ namespace OffAngle.Combat
 
             if (_grounded) occupant.StatusEffects.ServerClearGrounded();
             if (_nearsighted) occupant.StatusEffects.ServerClearNearsighted();
+            if (_slowed) occupant.StatusEffects.ServerClearSlowed();
         }
     }
 }

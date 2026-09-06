@@ -15,7 +15,7 @@ MonoBehaviour:
   _duration: 8
   _riseHeight: 50
   _riseTime: 0.35
-  _scaleMultiplier: 10
-  _bonusShield: 1000
+  _scaleMultiplier: 5
+  _bonusShield: 750
   _fireballData: {fileID: 11400000, guid: 6afe12e6017d43128618cb4ab1babd24, type: 2}
   _fireballShotBehavior: {fileID: 11400000, guid: b2c373ac599c40b8a323a05ac20fee4a, type: 2}

@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.GunData
   Damage: 0
   HeadshotDamage: 0
-  FireRate: 5
+  FireRate: 4
   FireMode: 0
   BurstCount: 3
   MagazineSize: 1
@@ -27,7 +27,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   Affinity: 0
-  SupportsAds: 1
+  SupportsAds: 0
   AdsLocalPosition: {x: 0, y: -0.15, z: 0.3}
   AdsLocalRotation: {x: 0, y: 0, z: 0}
   AdsFov: 60

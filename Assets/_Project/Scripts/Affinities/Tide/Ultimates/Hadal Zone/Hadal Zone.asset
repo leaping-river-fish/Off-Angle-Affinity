@@ -15,6 +15,7 @@ MonoBehaviour:
   Id: hadal_zone
   DisplayName: Hadal Zone
   Icon: {fileID: 21300000, guid: c1d50b67f84796b45aeb764121a51327, type: 3}
-  Description: 
+  Description: Fire an orb of immense density, creating a zone that drags enemies
+    into the ocean's deepest depths. Enemies with are grounded and slowed.
   RequiredCharge: 100
   Behavior: {fileID: 11400000, guid: 376ffb68ccd1fdc47a72e9e94466e252, type: 2}

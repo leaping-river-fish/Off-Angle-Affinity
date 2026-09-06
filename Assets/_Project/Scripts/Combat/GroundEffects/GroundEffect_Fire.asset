@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ec0e865a28a842e6a2ec887afe4a5027, type: 3}
   m_Name: GroundEffect_Fire
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Combat.FireGroundEffectPayload
-  _damagePerSecond: 15
+  _damagePerSecond: 20

@@ -55,6 +55,7 @@ namespace OffAngle.Combat
         // debuff early - see this file's STACKING note.
         private int _groundedStacks;
         private int _nearsightedStacks;
+        private int _slowedStacks;
 
         private void Awake()
         {
@@ -82,6 +83,7 @@ namespace OffAngle.Combat
             {
                 _groundedStacks = 0;
                 _nearsightedStacks = 0;
+                _slowedStacks = 0;
             }
             catch (System.Exception e)
             {
@@ -148,6 +150,36 @@ namespace OffAngle.Combat
         {
             if (_cameraController == null) return;
             _cameraController.SetFovTarget(active ? fov : _cameraController.DefaultFov);
+        }
+
+        // ------------------------------------------------------------------
+        // Slowed (movement speed reduction)
+        // ------------------------------------------------------------------
+
+        /// <summary>Server-only. Scales this player's own movement speed by <paramref name="speedMultiplier"/>. Pair with ServerClearSlowed.</summary>
+        public void ServerApplySlowed(float speedMultiplier)
+        {
+            if (!IsServerInitialized) return;
+
+            _slowedStacks++;
+            if (_slowedStacks == 1)
+                TargetRpcSetSlowed(base.Owner, true, speedMultiplier);
+        }
+
+        /// <summary>Server-only. Reverses one ServerApplySlowed call.</summary>
+        public void ServerClearSlowed()
+        {
+            if (!IsServerInitialized || _slowedStacks <= 0) return;
+
+            _slowedStacks--;
+            if (_slowedStacks == 0)
+                TargetRpcSetSlowed(base.Owner, false, 1f);
+        }
+
+        [TargetRpc]
+        private void TargetRpcSetSlowed(NetworkConnection conn, bool active, float speedMultiplier)
+        {
+            _movement?.SetSpeedMultiplier(active ? speedMultiplier : 1f);
         }
     }
 }
