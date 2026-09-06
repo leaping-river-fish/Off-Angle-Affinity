@@ -178,8 +178,7 @@ MonoBehaviour:
   - {fileID: 5120456719034822156}
   - {fileID: 2120456719034822156}
   InitializedParentNetworkBehaviour: {fileID: 0}
-  InitializedNestedNetworkObjects:
-  - {fileID: 6204659653785218718}
+  InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
   RuntimeChildNetworkBehaviours: []
   _isNetworked: 1
@@ -379,42 +378,6 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: WasActiveDuringEdit
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: _initializedTimestamp
-      value: -8584141111109014078
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: <IsNested>k__BackingField
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: <PrefabId>k__BackingField
-      value: 10
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: <ComponentIndex>k__BackingField
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: InitializedParentNetworkBehaviour
-      value: 
-      objectReference: {fileID: 5120456719034822156}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: SerializedTransformProperties.Scale.x
-      value: 0.05
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: SerializedTransformProperties.Scale.y
-      value: 0.05
-      objectReference: {fileID: 0}
-    - target: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-      propertyPath: SerializedTransformProperties.Scale.z
-      value: 0.05
-      objectReference: {fileID: 0}
     - target: {fileID: 8819398574350801789, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
       propertyPath: VelocityModule.enabled
       value: 0
@@ -436,17 +399,6 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
---- !u!114 &6204659653785218718 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 3402769935481238080, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}
-  m_PrefabInstance: {fileID: 8728662373095447774}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 26b716c41e9b56b4baafaf13a523ba2e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Object.NetworkObject
 --- !u!4 &8728536073739345116 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 1000000000000002, guid: 0e6bb2155c6c61f4d94e8b64e0fd419f, type: 3}

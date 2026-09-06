@@ -31,6 +31,7 @@
 // NetworkTransform, Rigidbody, and a Collider in addition to this script.
 // =============================================================================
 
+using System.Collections.Generic;
 using FishNet;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
@@ -68,6 +69,7 @@ namespace OffAngle.Weapons
 
         // Owner-only prediction bookkeeping
         private ushort _clientPredictedShotId; // For predicted instances, to match with authoritative
+        private bool _childParticlesReleased;
 
         private void Awake()
         {
@@ -102,6 +104,14 @@ namespace OffAngle.Weapons
             // remote observers; the correct visual prefab already tells you
             // which weapon this came from.
             ShotEvents.RaiseProjectileSpawned(_attackerSync.Value, null, base.NetworkObject);
+        }
+
+        public override void OnStopClient()
+        {
+            // Covers impact and lifetime timeout. Predicted clones are not
+            // spawned NetworkObjects, so this does not run when they Destroy.
+            ReleaseChildParticles();
+            base.OnStopClient();
         }
 
         /// <summary>
@@ -402,6 +412,11 @@ namespace OffAngle.Weapons
         {
             if (!IsServerInitialized) return;
             _initialized = false;
+            // Host: ObserversRpc is often still in-flight when Despawn runs, and
+            // unparenting inside OnStopClient does not survive FishNet/Unity
+            // destroying this hierarchy. Clone trails while they still exist.
+            if (IsClientInitialized)
+                ReleaseChildParticles();
             base.NetworkObject.Despawn();
         }
 
@@ -423,10 +438,78 @@ namespace OffAngle.Weapons
         // sent right before despawn - not a per-frame message.
         // ------------------------------------------------------------------
 
-        [ObserversRpc]
+        [ObserversRpc(ExcludeOwner = false, RunLocally = true)]
         private void RpcImpacted(Vector3 point, Vector3 normal)
         {
+            ReleaseChildParticles();
             ShotEvents.RaiseProjectileImpacted(_attackerSync.Value, null, point, normal);
+        }
+
+        /// <summary>
+        /// Spawns a local copy of in-flight trails so existing particles can
+        /// finish after this NetworkObject is destroyed. Unparenting the
+        /// originals does not work — FishNet despawn still destroys them.
+        /// </summary>
+        private void ReleaseChildParticles()
+        {
+            if (_childParticlesReleased) return;
+            _childParticlesReleased = true;
+
+            ParticleSystem[] systems = GetComponentsInChildren<ParticleSystem>(true);
+            if (systems.Length == 0) return;
+
+            HashSet<Transform> roots = new HashSet<Transform>();
+            for (int i = 0; i < systems.Length; i++)
+            {
+                Transform t = systems[i].transform;
+                if (t == transform) continue;
+                while (t.parent != null && t.parent != transform)
+                    t = t.parent;
+                if (t.parent == transform)
+                    roots.Add(t);
+            }
+
+            foreach (Transform root in roots)
+                SpawnLingerCopy(root);
+        }
+
+        private static void SpawnLingerCopy(Transform root)
+        {
+            ParticleSystem[] sourceSystems = root.GetComponentsInChildren<ParticleSystem>(true);
+            ParticleSystem.Particle[][] snapshots = new ParticleSystem.Particle[sourceSystems.Length][];
+            int[] counts = new int[sourceSystems.Length];
+            float linger = 0.25f;
+
+            for (int i = 0; i < sourceSystems.Length; i++)
+            {
+                ParticleSystem ps = sourceSystems[i];
+                ParticleSystem.MainModule main = ps.main;
+                linger = Mathf.Max(linger, main.startLifetime.constantMax);
+
+                int count = ps.particleCount;
+                snapshots[i] = new ParticleSystem.Particle[Mathf.Max(1, count)];
+                counts[i] = count > 0 ? ps.GetParticles(snapshots[i]) : 0;
+            }
+
+            GameObject clone = Object.Instantiate(root.gameObject, root.position, root.rotation);
+            clone.name = root.name + " (Linger)";
+            clone.transform.localScale = root.lossyScale;
+
+            NetworkObject[] nestedNobs = clone.GetComponentsInChildren<NetworkObject>(true);
+            for (int i = 0; i < nestedNobs.Length; i++)
+                Object.DestroyImmediate(nestedNobs[i]);
+
+            ParticleSystem[] cloneSystems = clone.GetComponentsInChildren<ParticleSystem>(true);
+            int pairCount = Mathf.Min(sourceSystems.Length, cloneSystems.Length);
+            for (int i = 0; i < pairCount; i++)
+            {
+                ParticleSystem ps = cloneSystems[i];
+                if (counts[i] > 0)
+                    ps.SetParticles(snapshots[i], counts[i]);
+                ps.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            }
+
+            Object.Destroy(clone, linger);
         }
     }
 }
