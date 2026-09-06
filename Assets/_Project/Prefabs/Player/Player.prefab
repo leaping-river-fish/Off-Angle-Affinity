@@ -1409,7 +1409,7 @@ MonoBehaviour:
     WallDetectionDistance: 0.8
     WallRunMask:
       serializedVersion: 2
-      m_Bits: 4294967295
+      m_Bits: 63
     WallAngleTolerance: 10
     SameWallContactTolerance: 1.5
     WallReattachCooldown: 1
