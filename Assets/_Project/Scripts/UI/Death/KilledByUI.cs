@@ -1,5 +1,5 @@
 // =============================================================================
-// KilledByUI — displays "Killed by <attacker> (<weapon>)".
+// KilledByUI — displays "Killed by <attacker> using <weapon>".
 //
 // Reads DeathScreenController.LastDeathInfo on OnEnable - see
 // DeathScreenController's header for why this widget does not subscribe to
@@ -8,13 +8,14 @@
 // Environmental deaths (null attacker, e.g. FallOffMapKill) skip the
 // "Killed by" line and show a dedicated phrase instead.
 //
-// KNOWN LIMITATION: there is no player-name/identity system in the project
-// yet, so the attacker is labelled with its NetworkObject's GameObject name.
-// ResolveAttackerLabel is the single place to update once a real display-name
-// system exists.
+// The attacker is labelled with LobbyPlayerList.LabelFor (Main Menu display
+// name, or "Player {id}" if they never set one). Weapon text is the
+// WeaponDefinition.DisplayName already resolved into DeathInfo.WeaponLabel
+// on the server.
 // =============================================================================
 
 using OffAngle.Combat;
+using OffAngle.Networking;
 using TMPro;
 using UnityEngine;
 
@@ -48,12 +49,15 @@ namespace OffAngle.UI.Death
                 return string.IsNullOrEmpty(info.WeaponLabel) ? "Died" : info.WeaponLabel;
             }
 
-            return $"Killed by {ResolveAttackerLabel(info)} ({info.WeaponLabel})";
+            return $"Killed by {ResolveAttackerLabel(info)} using {info.WeaponLabel}";
         }
 
         private static string ResolveAttackerLabel(DeathInfo info)
         {
-            return info.Attacker != null ? info.Attacker.name : "Unknown";
+            if (info.Attacker == null || info.Attacker.Owner == null)
+                return "Unknown";
+
+            return LobbyPlayerList.LabelFor(info.Attacker.Owner.ClientId);
         }
     }
 }

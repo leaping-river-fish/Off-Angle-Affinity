@@ -25,5 +25,12 @@ MonoBehaviour:
   Range: 100
   HitMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 319
   Affinity: 0
+  SupportsAds: 1
+  AdsLocalPosition: {x: 0, y: -0.15, z: 0.3}
+  AdsLocalRotation: {x: 0, y: 0, z: 0}
+  AdsFov: 60
+  AdsTransitionSpeed: 10
+  AdsSensitivityMultiplier: 0.6
+  AdsMovementSpeedMultiplier: 0.8

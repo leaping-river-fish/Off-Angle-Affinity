@@ -544,6 +544,28 @@ namespace OffAngle.Networking
             return -1;
         }
 
+        /// <summary>
+        /// Player-facing name for a GunData, looked up through the same
+        /// WeaponDefinition catalog used to authorize equips. Returns false
+        /// for ultimates / other GunData that is not on a selectable weapon.
+        /// </summary>
+        public bool TryGetDisplayName(GunData data, out string displayName)
+        {
+            displayName = null;
+            if (data == null || _allDefinitions == null) return false;
+
+            foreach (WeaponDefinition definition in _allDefinitions)
+            {
+                if (definition == null || definition.Data != data) continue;
+                if (string.IsNullOrEmpty(definition.DisplayName)) return false;
+
+                displayName = definition.DisplayName;
+                return true;
+            }
+
+            return false;
+        }
+
         private WeaponDefinition ResolveDefinitionById(string id)
         {
             if (string.IsNullOrEmpty(id) || _allDefinitions == null) return null;

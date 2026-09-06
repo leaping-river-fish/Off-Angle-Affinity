@@ -324,10 +324,15 @@ namespace OffAngle.Combat
             if (_firstPersonCameraRoot != null) _firstPersonCameraRoot.SetActive(true);
         }
 
-        private static string ResolveWeaponLabel(DamageInfo info)
+        private string ResolveWeaponLabel(DamageInfo info)
         {
             if (info.Weapon != null)
+            {
+                if (_weaponEquipper != null && _weaponEquipper.TryGetDisplayName(info.Weapon, out string displayName))
+                    return displayName;
+
                 return info.Weapon.name;
+            }
 
             // Hazard / fall-off: no GunData. FallOffMapKill is the only null
             // attacker + null weapon path today.
