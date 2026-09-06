@@ -1,8 +1,10 @@
 // =============================================================================
 // FloatingDamageNumber — one-shot local damage popup.
 //
-// Not networked. Spawned by DamageNumberSpawner on every peer in response to
-// Health.DamageFeedback. Rises, fades, and self-destroys after Lifetime.
+// Not networked. Spawned by DamageNumberSpawner on the attacking player's
+// client in response to Health.DamageFeedback. Rises, holds, fades, and
+// self-destroys after Lifetime. World scale tracks camera distance so on-screen
+// size stays roughly constant as you move in or out.
 //
 // Color is the last pool the hit reached (cyan if fully absorbed by shield,
 // affinity tint if any damage reached health). Font weight is the hit zone
@@ -21,8 +23,21 @@ namespace OffAngle.UI.Combat
         private static readonly Color HealColor = new Color(0.40f, 1.00f, 0.40f);
 
         [SerializeField] private TMP_Text _text;
-        [SerializeField, Min(0.1f)] private float _lifetime = 1f;
+
+        [Header("Motion")]
+        [SerializeField, Min(0.1f)] private float _lifetime = 2.5f;
         [SerializeField] private float _riseSpeed = 1.5f;
+        [SerializeField, Min(0f)] private float _fadeDuration = 0.6f;
+
+        [Header("Size (tune on the Damage Number prefab)")]
+        [Tooltip("Primary knob. 1 = designed size at Reference Distance. Raise to make every number larger.")]
+        [SerializeField, Min(0.01f)] private float _size = 1f;
+        [Tooltip("World metres from camera at which Size 1 looks like the designed scale.")]
+        [SerializeField, Min(0.01f)] private float _referenceDistance = 10f;
+        [Tooltip("Floor so numbers never vanish at point-blank.")]
+        [SerializeField, Min(0.01f)] private float _minScale = 0.4f;
+        [Tooltip("Cap so numbers never fill the screen at long range.")]
+        [SerializeField, Min(0.01f)] private float _maxScale = 3f;
 
         private float _spawnTime;
         private Color _baseColor = Color.white;
@@ -55,15 +70,15 @@ namespace OffAngle.UI.Combat
         {
             transform.position += Vector3.up * (_riseSpeed * Time.deltaTime);
 
-            float t = (Time.time - _spawnTime) / _lifetime;
+            float age = Time.time - _spawnTime;
             if (_text != null)
             {
                 Color c = _baseColor;
-                c.a = Mathf.Clamp01(1f - t);
+                c.a = AlphaAt(age);
                 _text.color = c;
             }
 
-            if (t >= 1f)
+            if (age >= _lifetime)
                 Destroy(gameObject);
         }
 
@@ -77,9 +92,26 @@ namespace OffAngle.UI.Combat
             }
 
             Vector3 toCam = transform.position - _cameraTransform.position;
-            if (toCam.sqrMagnitude < 0.0001f) return;
+            float sqr = toCam.sqrMagnitude;
+            if (sqr < 0.0001f) return;
 
             transform.rotation = Quaternion.LookRotation(toCam.normalized, Vector3.up);
+
+            float distance = Mathf.Sqrt(sqr);
+            float scale = distance * (_size / _referenceDistance);
+            scale = Mathf.Clamp(scale, _minScale, _maxScale);
+            transform.localScale = Vector3.one * scale;
+        }
+
+        private float AlphaAt(float age)
+        {
+            float fade = Mathf.Min(_fadeDuration, _lifetime);
+            float fadeStart = _lifetime - fade;
+            if (age <= fadeStart)
+                return 1f;
+            if (fade <= 0f)
+                return 0f;
+            return Mathf.Clamp01(1f - (age - fadeStart) / fade);
         }
 
         // ------------------------------------------------------------------

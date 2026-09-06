@@ -2,8 +2,9 @@
 // Health — reusable, network-synchronized HP component.
 //
 // AUTHORITY:
-//   The server owns CurrentHealth. Clients only read the SyncVar and receive
-//   the RpcOnDamaged observer message for local UX (floating damage numbers).
+//   The server owns CurrentHealth. Clients only read the SyncVar. The
+//   attacking player's client also receives TargetRpcOnDamaged for local UX
+//   (floating damage numbers). Other observers do not.
 //
 // PLUMBING:
 //   - IDamageable.ApplyDamage is the single write path. Anything that wants
@@ -37,6 +38,7 @@
 // =============================================================================
 
 using System;
+using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 using UnityEngine;
@@ -175,8 +177,8 @@ namespace OffAngle.Combat
             if (toHealth <= 0f)
             {
                 // Fully absorbed by the shield — health untouched, but still give the
-                // client a damage-number popup so the hit feels acknowledged.
-                RpcOnDamaged(info.HitPoint, absorbed, 0f, info.Affinity, info.Category);
+                // attacker a damage-number popup so the hit feels acknowledged.
+                SendAttackerDamageFeedback(info, absorbed, 0f);
                 ServerDamageApplied?.Invoke(base.NetworkObject, info, absorbed);
                 return;
             }
@@ -187,7 +189,7 @@ namespace OffAngle.Combat
             float next = Mathf.Max(0f, previous - toHealth);
             _current.Value = next;
 
-            RpcOnDamaged(info.HitPoint, absorbed, toHealth, info.Affinity, info.Category);
+            SendAttackerDamageFeedback(info, absorbed, toHealth);
 
             // Before OnServerDied, so a killing blow still awards its charge and is
             // still recorded in the attacker's combat memory.
@@ -228,11 +230,21 @@ namespace OffAngle.Combat
         }
 
         // ------------------------------------------------------------------
-        // Client-visible damage RPC (UX only — never mutates game state)
+        // Attacker-only damage RPC (UX only — never mutates game state)
         // ------------------------------------------------------------------
 
-        [ObserversRpc]
-        private void RpcOnDamaged(
+        private void SendAttackerDamageFeedback(DamageInfo info, float shieldAmount, float healthAmount)
+        {
+            NetworkConnection conn = info.Attacker != null ? info.Attacker.Owner : null;
+            if (conn == null)
+                return;
+
+            TargetRpcOnDamaged(conn, info.HitPoint, shieldAmount, healthAmount, info.Affinity, info.Category);
+        }
+
+        [TargetRpc]
+        private void TargetRpcOnDamaged(
+            NetworkConnection conn,
             Vector3 hitPoint,
             float shieldAmount,
             float healthAmount,

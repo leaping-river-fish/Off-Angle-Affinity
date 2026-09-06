@@ -64,6 +64,7 @@ using UnityEngine;
 using OffAngle.Core;
 using OffAngle.Movement;
 using OffAngle.Player;
+using OffAngle.UI.Combat;
 
 namespace OffAngle.Networking
 {
@@ -136,6 +137,8 @@ namespace OffAngle.Networking
             if (_ownerComponentsActivated) return;
             _ownerComponentsActivated = true;
 
+            WorldHealthBar _worldBar = GetComponentInChildren<WorldHealthBar>(true);
+
             // Local owner: light up the gameplay stack in a deterministic order.
             // PlayerInputReader.OnEnable must run BEFORE PlayerCameraController.OnEnable
             // (which is inside _cameraRoot.SetActive) so the camera's seed read of
@@ -152,11 +155,13 @@ namespace OffAngle.Networking
             TryStep(() => { if (_stateMachine != null) _stateMachine.enabled = true; }, nameof(_stateMachine));
             TryStep(() => { if (_cameraRoot != null) _cameraRoot.SetActive(true); }, nameof(_cameraRoot));
             TryStep(() => { if (_hudRoot != null) _hudRoot.SetActive(true); }, nameof(_hudRoot));
+            TryStep(() => { if (_worldBar != null) _worldBar.gameObject.SetActive(false); }, nameof(_worldBar));
 
             Debug.Log($"[{nameof(NetworkPlayerController)}] {name} ActivateOwnerComponents ran. cameraRootActive={_cameraRoot != null && _cameraRoot.activeSelf}.");
 
             if (_ensureControllerEnabledCoroutine == null)
                 _ensureControllerEnabledCoroutine = StartCoroutine(EnsureControllerEnabled());
+            
         }
 
         private void TryStep(Action step, string stepName)

@@ -148,8 +148,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.UI.Combat.FloatingDamageNumber
   _text: {fileID: 380442456819934467}
-  _lifetime: 1
+  _lifetime: 2.5
   _riseSpeed: 1.5
+  _fadeDuration: 0.6
+  _size: 1
+  _referenceDistance: 10
+  _minScale: 1
+  _maxScale: 5
 --- !u!1 &6523249744250521281
 GameObject:
   m_ObjectHideFlags: 0
@@ -217,8 +222,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: 10
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
-  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_fontAsset: {fileID: 11400000, guid: 6beea4a811475604db791cacd9762687, type: 2}
+  m_sharedMaterial: {fileID: 6100659575583030413, guid: 6beea4a811475604db791cacd9762687, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []

@@ -2,9 +2,9 @@
 // DamageNumberSpawner — scene singleton that pops FloatingDamageNumber instances.
 //
 // Subscribes to the static Health.DamageFeedback event so gameplay code
-// (Combat namespace) doesn't need to reference the UI namespace. Every peer's
-// Health.RpcOnDamaged fires the event locally; this spawner reacts on every
-// peer to give each viewer their own local floating text.
+// (Combat namespace) doesn't need to reference the UI namespace. Only the
+// attacking player's client receives Health.TargetRpcOnDamaged, so this
+// spawner only pops text for the local player's own hits.
 //
 // Setup: drop one empty GameObject with this component into the scene and
 // assign the FloatingDamageNumber prefab.

@@ -4,8 +4,7 @@
 //
 // Pure client-side VFX, not a NetworkObject. PlayerWeaponController's
 // RpcPlayTracer instantiates one locally on every peer after the server
-// resolves a shot — the same "server decides, ObserversRpc informs, client
-// renders" pattern Health.RpcOnDamaged uses for damage-number feedback.
+// resolves a shot — "server decides, ObserversRpc informs, client renders".
 //
 // Self-configures its own LineRenderer (and a shared fallback material) in
 // Awake, so the prefab needs nothing beyond this script attached — no manual
