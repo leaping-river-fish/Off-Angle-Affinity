@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Affinities.AffinityDefinition
   Id: 5_frost
   DisplayName: Frost
-  Icon: {fileID: 21300000, guid: 9909785424fc3a44995f12eb12ab8253, type: 3}
+  Icon: {fileID: 21300000, guid: 9e63ff4c20857eb4e96ef377f15663dd, type: 3}
   ThemeColor: {r: 1, g: 1, b: 1, a: 1}
   DamageTag: 0
   Passive: {fileID: 11400000, guid: 778e627b2eba4d14a82743e9f0e459b1, type: 2}

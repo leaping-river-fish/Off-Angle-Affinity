@@ -2,22 +2,20 @@
 // AffinitySelectMenuUI — controller for the "Affinity Select Menu" prefab.
 //
 // ARCHITECTURE:
-//   Owns 13 permanently-placed AffinityTreeNodeUI slots (1 affinity + 3
-//   ultimates + 9 perks, row-major). The carousel swaps which AffinityDefinition
-//   those slots display; it never itself registers a pick. Ultimate/perk nodes
-//   only mutate LocalAffinitySelection once the browsed affinity has been
-//   locked into the active slot via the Select button - see IsBrowsedAffinityLockedIn.
+//   One page, two columns. Path-icon arrays (registry order) pick Primary and
+//   Secondary immediately. Each column owns its own tree nodes. Ultimate/perk
+//   clicks inspect first, then mutate LocalAffinitySelection only when that
+//   column already has an affinity.
 //
 //   This is the only script that talks to LocalAffinitySelection /
 //   AffinitySelectCoordinator; AffinityTreeNodeUI and AffinityDescriptionPanelUI
 //   are dumb display/click components with no knowledge of either.
 //
-// SECONDARY RESTRICTIONS:
-//   A secondary affinity never gets an ultimate and cannot draw a perk from
-//   AffinityLoadoutRules.PrimaryOnlyRow - both are reflected by dimming
-//   (CanvasGroup.alpha) and disabling (AffinityTreeNodeUI.SetInteractable) the
-//   relevant rows while the Secondary slot is active. Nodes stay
-//   click-to-inspect even while disabled (see AffinityTreeNodeUI).
+// SECONDARY:
+//   Cannot be picked until Primary is set. The path icon whose registry index
+//   matches Primary is hidden, not greyed. The secondary tree shows perk rows
+//   0 and 2 only (AffinityLoadoutRules.PrimaryOnlyRow and ultimates are omitted
+//   from the hierarchy entirely).
 // =============================================================================
 
 using OffAngle.Affinities;
@@ -30,49 +28,39 @@ namespace OffAngle.UI.Affinities
 {
     public class AffinitySelectMenuUI : MonoBehaviour
     {
-        [Header("Slot Toggle")]
-        [SerializeField] private Button _primaryToggleButton;
-        [SerializeField] private Button _secondaryToggleButton;
-        [SerializeField] private GameObject _primaryToggleHighlight;
-        [SerializeField] private GameObject _secondaryToggleHighlight;
-
         [Header("Status")]
         [SerializeField] private TMP_Text _statusText;
         [SerializeField] private TMP_Text _countdownText;
 
-        [Header("Carousel")]
-        [Tooltip("The whole browse row (arrows + name). Hidden once the active slot has a locked-in affinity.")]
-        [SerializeField] private GameObject _carouselRow;
-        [SerializeField] private Button _carouselLeftButton;
-        [SerializeField] private Button _carouselRightButton;
-        [SerializeField] private TMP_Text _browsedAffinityNameText;
-        [SerializeField] private Image _browsedAffinityIcon;
+        [Header("Primary Path")]
+        [SerializeField] private AffinityTreeNodeUI _primarySelectedNode;
+        [Tooltip("Size 6, same order as AffinityRegistry.AllAffinities.")]
+        [SerializeField] private AffinityTreeNodeUI[] _primaryPathIcons = new AffinityTreeNodeUI[6];
 
-        [Header("Tree")]
-        [Tooltip("The scrollable tree container. Shown only once the active slot has a locked-in affinity.")]
-        [SerializeField] private GameObject _treeScrollView;
-        [SerializeField] private AffinityTreeNodeUI _affinityNode;
+        [Header("Secondary Path")]
+        [SerializeField] private AffinityTreeNodeUI _secondarySelectedNode;
+        [Tooltip("Size 6, same order as AffinityRegistry.AllAffinities. The primary's index is hidden at runtime.")]
+        [SerializeField] private AffinityTreeNodeUI[] _secondaryPathIcons = new AffinityTreeNodeUI[6];
 
+        [Header("Primary Tree")]
+        [SerializeField] private GameObject _primaryTreeRoot;
+        [SerializeField] private GameObject _primaryEmptyPrompt;
         [Tooltip("Expected size 3, in the same order as AffinityDefinition.Ultimates.")]
-        [SerializeField] private AffinityTreeNodeUI[] _ultimateNodes = new AffinityTreeNodeUI[3];
-
+        [SerializeField] private AffinityTreeNodeUI[] _primaryUltimateNodes = new AffinityTreeNodeUI[3];
         [Tooltip("Expected size 9, row-major: index = row * 3 + column.")]
-        [SerializeField] private AffinityTreeNodeUI[] _perkNodes = new AffinityTreeNodeUI[9];
+        [SerializeField] private AffinityTreeNodeUI[] _primaryPerkNodes = new AffinityTreeNodeUI[9];
 
-        [Tooltip("CanvasGroup wrapping the ultimates row. Dimmed while editing Secondary - a secondary affinity never gets an ultimate.")]
-        [SerializeField] private CanvasGroup _ultimatesCanvasGroup;
+        [Header("Secondary Tree")]
+        [SerializeField] private GameObject _secondaryTreeRoot;
+        [Tooltip("Shown until a primary affinity is picked.")]
+        [SerializeField] private GameObject _secondaryLockedPrompt;
+        [Tooltip("Shown after primary is picked, until a secondary affinity is picked.")]
+        [SerializeField] private GameObject _secondaryEmptyPrompt;
+        [Tooltip("Expected size 6: 0-2 = perk row 1 (index 0), 3-5 = perk row 3 (index 2).")]
+        [SerializeField] private AffinityTreeNodeUI[] _secondaryPerkNodes = new AffinityTreeNodeUI[6];
 
-        [Tooltip("CanvasGroup wrapping perk row AffinityLoadoutRules.PrimaryOnlyRow. Dimmed while editing Secondary.")]
-        [SerializeField] private CanvasGroup _primaryOnlyRowCanvasGroup;
-
-        [Header("Select")]
-        [Tooltip("The whole Select row. Hidden once the active slot has a locked-in affinity.")]
-        [SerializeField] private GameObject _selectRow;
-        [SerializeField] private Button _selectButton;
-        [SerializeField] private TMP_Text _selectButtonLabel;
-
-        [Tooltip("Shown only once the active slot has a locked-in affinity - clears that slot's pick so the player can browse again.")]
-        [SerializeField] private Button _deselectButton;
+        [Header("Primary Passive")]
+        [SerializeField] private AffinityTreeNodeUI _primaryPassiveNode;
 
         [Header("Confirm / Ready")]
         [SerializeField] private Button _confirmButton;
@@ -82,8 +70,6 @@ namespace OffAngle.UI.Affinities
         [SerializeField] private AffinityDescriptionPanelUI _descriptionPanel;
 
         private AffinityRegistry _registry;
-        private int _carouselIndex;
-        private bool _activeSlotIsSecondary;
         private bool _hasSubmitted;
         private int _lastDisplayedSeconds = -1;
 
@@ -93,37 +79,33 @@ namespace OffAngle.UI.Affinities
 
         private void Awake()
         {
-            if (_primaryToggleButton != null)
-                _primaryToggleButton.onClick.AddListener(HandlePrimaryToggleClicked);
-            if (_secondaryToggleButton != null)
-                _secondaryToggleButton.onClick.AddListener(HandleSecondaryToggleClicked);
-            if (_carouselLeftButton != null)
-                _carouselLeftButton.onClick.AddListener(HandleCarouselLeftClicked);
-            if (_carouselRightButton != null)
-                _carouselRightButton.onClick.AddListener(HandleCarouselRightClicked);
-            if (_selectButton != null)
-                _selectButton.onClick.AddListener(HandleSelectClicked);
+            BindNode(_primarySelectedNode, HandlePrimarySelectedNodeClicked);
+            BindNode(_secondarySelectedNode, HandleSecondarySelectedNodeClicked);
+            BindNode(_primaryPassiveNode, HandlePrimaryPassiveClicked);
+
+            BindPathIcons(_primaryPathIcons, asSecondary: false);
+            BindPathIcons(_secondaryPathIcons, asSecondary: true);
+
+            for (int i = 0; i < _primaryUltimateNodes.Length; i++)
+            {
+                int index = i;
+                BindNode(_primaryUltimateNodes[i], () => HandlePrimaryUltimateClicked(index));
+            }
+
+            for (int i = 0; i < _primaryPerkNodes.Length; i++)
+            {
+                int index = i;
+                BindNode(_primaryPerkNodes[i], () => HandlePrimaryPerkClicked(index));
+            }
+
+            for (int i = 0; i < _secondaryPerkNodes.Length; i++)
+            {
+                int index = i;
+                BindNode(_secondaryPerkNodes[i], () => HandleSecondaryPerkClicked(index));
+            }
+
             if (_confirmButton != null)
                 _confirmButton.onClick.AddListener(HandleConfirmButtonClicked);
-            if (_deselectButton != null)
-                _deselectButton.onClick.AddListener(HandleDeselectClicked);
-
-            if (_affinityNode != null)
-                _affinityNode.Clicked += HandleAffinityNodeClicked;
-
-            for (int i = 0; i < _ultimateNodes.Length; i++)
-            {
-                if (_ultimateNodes[i] == null) continue;
-                int index = i; // capture per-iteration, not the shared loop variable
-                _ultimateNodes[i].Clicked += () => HandleUltimateClicked(index);
-            }
-
-            for (int i = 0; i < _perkNodes.Length; i++)
-            {
-                if (_perkNodes[i] == null) continue;
-                int index = i;
-                _perkNodes[i].Clicked += () => HandlePerkClicked(index);
-            }
 
             _descriptionPanel?.Clear();
         }
@@ -139,8 +121,7 @@ namespace OffAngle.UI.Affinities
             if (AffinitySelectCoordinator.Instance != null)
                 HandleCoordinatorReady();
 
-            SetActiveSlot(false);
-            RefreshBrowsedAffinity();
+            RefreshAll();
         }
 
         private void OnDisable()
@@ -153,20 +134,8 @@ namespace OffAngle.UI.Affinities
 
         private void OnDestroy()
         {
-            if (_primaryToggleButton != null)
-                _primaryToggleButton.onClick.RemoveListener(HandlePrimaryToggleClicked);
-            if (_secondaryToggleButton != null)
-                _secondaryToggleButton.onClick.RemoveListener(HandleSecondaryToggleClicked);
-            if (_carouselLeftButton != null)
-                _carouselLeftButton.onClick.RemoveListener(HandleCarouselLeftClicked);
-            if (_carouselRightButton != null)
-                _carouselRightButton.onClick.RemoveListener(HandleCarouselRightClicked);
-            if (_selectButton != null)
-                _selectButton.onClick.RemoveListener(HandleSelectClicked);
             if (_confirmButton != null)
                 _confirmButton.onClick.RemoveListener(HandleConfirmButtonClicked);
-            if (_deselectButton != null)
-                _deselectButton.onClick.RemoveListener(HandleDeselectClicked);
         }
 
         private void Update()
@@ -181,225 +150,238 @@ namespace OffAngle.UI.Affinities
             RefreshCountdownText();
         }
 
-        // ------------------------------------------------------------------
-        // Carousel / slot toggle
-        // ------------------------------------------------------------------
-
-        private void HandlePrimaryToggleClicked() => SetActiveSlot(false);
-        private void HandleSecondaryToggleClicked() => SetActiveSlot(true);
-        private void HandleCarouselLeftClicked() => Step(-1);
-        private void HandleCarouselRightClicked() => Step(1);
-
-        private void Step(int delta)
+        private static void BindNode(AffinityTreeNodeUI node, System.Action handler)
         {
-            if (_registry == null || _registry.AllAffinities == null || _registry.AllAffinities.Count == 0) return;
-
-            int count = _registry.AllAffinities.Count;
-            _carouselIndex = ((_carouselIndex + delta) % count + count) % count;
-            RefreshBrowsedAffinity();
+            if (node != null)
+                node.Clicked += handler;
         }
 
-        private void SetActiveSlot(bool asSecondary)
+        private void BindPathIcons(AffinityTreeNodeUI[] icons, bool asSecondary)
         {
-            _activeSlotIsSecondary = asSecondary;
+            if (icons == null) return;
 
-            // If this slot already has an affinity locked in, jump the carousel to
-            // it so the tree (which reads CurrentBrowsedAffinity()) shows the right
-            // one instead of whatever was being browsed under the other slot.
-            SnapCarouselToActiveSlotAffinity();
-
-            RefreshToggleVisuals();
-            RefreshVisibilityState();
-            RefreshTreeInteractability();
-            RefreshSelectedHighlights();
-            RefreshStatusText();
-            RefreshSelectButtonLabel();
-        }
-
-        private void RefreshToggleVisuals()
-        {
-            if (_primaryToggleHighlight != null)
-                _primaryToggleHighlight.SetActive(!_activeSlotIsSecondary);
-            if (_secondaryToggleHighlight != null)
-                _secondaryToggleHighlight.SetActive(_activeSlotIsSecondary);
-        }
-
-        private void SnapCarouselToActiveSlotAffinity()
-        {
-            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (selection == null || _registry == null || _registry.AllAffinities == null) return;
-
-            AffinityDefinition current = _activeSlotIsSecondary ? selection.Secondary : selection.Primary;
-            if (current == null) return;
-
-            int index = _registry.AllAffinities.IndexOf(current);
-            if (index >= 0)
+            for (int i = 0; i < icons.Length; i++)
             {
-                _carouselIndex = index;
-                RefreshBrowsedAffinity();
+                int index = i;
+                BindNode(icons[i], () => HandlePathIconClicked(index, asSecondary));
             }
         }
 
-        // Carousel/Select are for browsing before a pick is locked in; the tree is
-        // for editing ultimate/perks after. Only one half of that is ever visible
-        // for the active slot at a time - see the user-facing flow this mirrors:
-        // browse -> Select -> (carousel/select hide, tree/Deselect show) -> Deselect
-        // to go back to browsing. Applies independently to Primary and Secondary.
+        // ------------------------------------------------------------------
+        // Refresh
+        // ------------------------------------------------------------------
+
+        private void RefreshAll()
+        {
+            RefreshPathIcons();
+            RefreshSelectedAffinityDisplays();
+            RefreshPrimaryTreeContent();
+            RefreshSecondaryTreeContent();
+            RefreshPassiveNode();
+            RefreshVisibilityState();
+            RefreshSelectedHighlights();
+            RefreshStatusText();
+            RefreshConfirmButton();
+            RefreshCountdownText();
+        }
+
+        private void RefreshPathIcons()
+        {
+            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
+            AffinityDefinition primary = selection != null ? selection.Primary : null;
+            bool hasPrimary = primary != null;
+
+            RefreshPathIconRow(_primaryPathIcons, alwaysInteractable: true, hideIndex: -1);
+            RefreshPathIconRow(_secondaryPathIcons, alwaysInteractable: hasPrimary, hideIndex: IndexOf(primary));
+        }
+
+        private void RefreshPathIconRow(AffinityTreeNodeUI[] icons, bool alwaysInteractable, int hideIndex)
+        {
+            if (icons == null) return;
+
+            int count = AffinityCount();
+            for (int i = 0; i < icons.Length; i++)
+            {
+                if (icons[i] == null) continue;
+
+                AffinityDefinition affinity = GetAffinity(i);
+                bool inRange = i < count && affinity != null;
+                bool hidden = inRange && i == hideIndex;
+
+                icons[i].gameObject.SetActive(inRange && !hidden);
+                if (!inRange || hidden) continue;
+
+                icons[i].SetContent(affinity.Icon, affinity.DisplayName);
+                icons[i].SetInteractable(alwaysInteractable);
+            }
+        }
+
+        private void RefreshSelectedAffinityDisplays()
+        {
+            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
+            SetAffinityDisplay(_primarySelectedNode, selection != null ? selection.Primary : null);
+            SetAffinityDisplay(_secondarySelectedNode, selection != null ? selection.Secondary : null);
+        }
+
+        private static void SetAffinityDisplay(AffinityTreeNodeUI node, AffinityDefinition affinity)
+        {
+            if (node == null) return;
+
+            if (affinity != null)
+            {
+                node.SetContent(affinity.Icon, affinity.DisplayName);
+                node.SetSelected(true);
+            }
+            else
+            {
+                node.SetContent(null, "");
+                node.SetSelected(false);
+            }
+
+            node.SetInteractable(true);
+        }
+
+        private void RefreshPrimaryTreeContent()
+        {
+            AffinityDefinition affinity = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+
+            for (int i = 0; i < _primaryUltimateNodes.Length; i++)
+            {
+                if (_primaryUltimateNodes[i] == null) continue;
+                UltimateDefinition ultimate = GetUltimate(affinity, i);
+                _primaryUltimateNodes[i].SetContent(
+                    ultimate != null ? ultimate.Icon : null,
+                    ultimate != null ? ultimate.DisplayName : "");
+                _primaryUltimateNodes[i].SetInteractable(affinity != null && ultimate != null);
+            }
+
+            for (int i = 0; i < _primaryPerkNodes.Length; i++)
+            {
+                if (_primaryPerkNodes[i] == null) continue;
+                PerkDefinition perk = affinity != null ? affinity.GetPerk(i / 3, i % 3) : null;
+                _primaryPerkNodes[i].SetContent(
+                    perk != null ? perk.Icon : null,
+                    perk != null ? perk.DisplayName : "");
+                _primaryPerkNodes[i].SetInteractable(affinity != null && perk != null);
+            }
+        }
+
+        private void RefreshSecondaryTreeContent()
+        {
+            AffinityDefinition affinity = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Secondary
+                : null;
+
+            for (int i = 0; i < _secondaryPerkNodes.Length; i++)
+            {
+                if (_secondaryPerkNodes[i] == null) continue;
+
+                SecondaryPerkSlot(i, out int row, out int column);
+                PerkDefinition perk = affinity != null ? affinity.GetPerk(row, column) : null;
+                _secondaryPerkNodes[i].SetContent(
+                    perk != null ? perk.Icon : null,
+                    perk != null ? perk.DisplayName : "");
+                _secondaryPerkNodes[i].SetInteractable(affinity != null && perk != null);
+            }
+        }
+
+        private void RefreshPassiveNode()
+        {
+            if (_primaryPassiveNode == null) return;
+
+            AffinityDefinition primary = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+            AffinityPassive passive = primary != null ? primary.Passive : null;
+
+            if (passive != null)
+            {
+                Sprite icon = passive.Icon != null ? passive.Icon : primary.Icon;
+                _primaryPassiveNode.SetContent(icon, passive.DisplayName);
+            }
+            else
+            {
+                _primaryPassiveNode.SetContent(null, "");
+            }
+
+            _primaryPassiveNode.SetSelected(false);
+            _primaryPassiveNode.SetInteractable(true);
+        }
+
         private void RefreshVisibilityState()
         {
             LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            bool hasAffinity = selection != null && (_activeSlotIsSecondary ? selection.Secondary != null : selection.Primary != null);
+            bool hasPrimary = selection != null && selection.Primary != null;
+            bool hasSecondary = selection != null && selection.Secondary != null;
 
-            if (_carouselRow != null)
-                _carouselRow.SetActive(!hasAffinity);
-            if (_selectRow != null)
-                _selectRow.SetActive(!hasAffinity);
-            if (_treeScrollView != null)
-            {
-                _treeScrollView.SetActive(hasAffinity);
+            if (_primaryEmptyPrompt != null)
+                _primaryEmptyPrompt.SetActive(!hasPrimary);
+            SetTreeActive(_primaryTreeRoot, hasPrimary);
 
-                // Unity doesn't reliably re-run nested Layout Group / Content Size
-                // Fitter passes the moment a previously-inactive hierarchy is
-                // reactivated - without forcing it, Content can be left at a stale
-                // (often zero) size: nodes appear to vanish and there's nothing to
-                // scroll even though every component is configured correctly.
-                // ForceUpdateCanvases first flushes whatever layout work Unity
-                // already queued from the SetActive above - calling
-                // ForceRebuildLayoutImmediate without it can rebuild against the
-                // still-stale pre-activation state.
-                if (hasAffinity)
-                {
-                    Canvas.ForceUpdateCanvases();
-                    LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)_treeScrollView.transform);
-                }
-            }
-            if (_deselectButton != null)
-                _deselectButton.gameObject.SetActive(hasAffinity);
+            if (_secondaryLockedPrompt != null)
+                _secondaryLockedPrompt.SetActive(!hasPrimary);
+            if (_secondaryEmptyPrompt != null)
+                _secondaryEmptyPrompt.SetActive(hasPrimary && !hasSecondary);
+            SetTreeActive(_secondaryTreeRoot, hasSecondary);
         }
 
-        private AffinityDefinition CurrentBrowsedAffinity()
+        private static void SetTreeActive(GameObject treeRoot, bool active)
         {
-            if (_registry == null || _registry.AllAffinities == null) return null;
-            if (_carouselIndex < 0 || _carouselIndex >= _registry.AllAffinities.Count) return null;
-            return _registry.AllAffinities[_carouselIndex];
-        }
+            if (treeRoot == null) return;
 
-        private bool IsBrowsedAffinityLockedIn()
-        {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
-            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (affinity == null || selection == null) return false;
+            treeRoot.SetActive(active);
+            if (!active) return;
 
-            return _activeSlotIsSecondary ? selection.Secondary == affinity : selection.Primary == affinity;
-        }
-
-        // ------------------------------------------------------------------
-        // Refresh — content (carousel change)
-        // ------------------------------------------------------------------
-
-        private void RefreshBrowsedAffinity()
-        {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
-
-            if (_browsedAffinityNameText != null)
-                _browsedAffinityNameText.text = affinity != null ? affinity.DisplayName : "No Affinities";
-
-            if (_browsedAffinityIcon != null)
-            {
-                Sprite icon = affinity != null ? affinity.Icon : null;
-                _browsedAffinityIcon.sprite = icon;
-                _browsedAffinityIcon.gameObject.SetActive(icon != null);
-            }
-
-            if (_affinityNode != null)
-                _affinityNode.SetContent(affinity != null ? affinity.Icon : null, affinity != null ? affinity.DisplayName : "");
-
-            for (int i = 0; i < _ultimateNodes.Length; i++)
-            {
-                if (_ultimateNodes[i] == null) continue;
-                UltimateDefinition ultimate = GetUltimate(affinity, i);
-                _ultimateNodes[i].SetContent(ultimate != null ? ultimate.Icon : null, ultimate != null ? ultimate.DisplayName : "");
-            }
-
-            for (int i = 0; i < _perkNodes.Length; i++)
-            {
-                if (_perkNodes[i] == null) continue;
-                PerkDefinition perk = affinity != null ? affinity.GetPerk(i / 3, i % 3) : null;
-                _perkNodes[i].SetContent(perk != null ? perk.Icon : null, perk != null ? perk.DisplayName : "");
-            }
-
-            // Browsing the carousel previews the AFFINITY itself, not its passive -
-            // the passive is a specific thing the player has to click the top node
-            // to inspect, same as any ultimate/perk. This only ever runs on a
-            // carousel/slot change, never on a node click - see HandleAffinityNodeClicked
-            // for the click-triggered passive inspect.
-            if (affinity != null)
-                _descriptionPanel?.Inspect(affinity.Icon, affinity.DisplayName, "");
-
-            RefreshVisibilityState();
-            RefreshTreeInteractability();
-            RefreshSelectedHighlights();
-            RefreshStatusText();
-            RefreshSelectButtonLabel();
-        }
-
-        private static UltimateDefinition GetUltimate(AffinityDefinition affinity, int index)
-        {
-            if (affinity == null || affinity.Ultimates == null || index < 0 || index >= affinity.Ultimates.Count) return null;
-            return affinity.Ultimates[index];
-        }
-
-        // ------------------------------------------------------------------
-        // Refresh — interactability / highlights / status (selection change)
-        // ------------------------------------------------------------------
-
-        private void RefreshTreeInteractability()
-        {
-            bool locked = IsBrowsedAffinityLockedIn();
-
-            if (_affinityNode != null)
-                _affinityNode.SetInteractable(true);
-
-            bool ultimatesAvailable = !_activeSlotIsSecondary;
-            for (int i = 0; i < _ultimateNodes.Length; i++)
-                _ultimateNodes[i]?.SetInteractable(locked && ultimatesAvailable);
-            if (_ultimatesCanvasGroup != null)
-                _ultimatesCanvasGroup.alpha = ultimatesAvailable ? 1f : 0.4f;
-
-            for (int i = 0; i < _perkNodes.Length; i++)
-            {
-                int row = i / 3;
-                bool rowAvailable = AffinityLoadoutRules.IsRowAvailable(row, _activeSlotIsSecondary);
-                _perkNodes[i]?.SetInteractable(locked && rowAvailable);
-            }
-
-            if (_primaryOnlyRowCanvasGroup != null)
-                _primaryOnlyRowCanvasGroup.alpha = AffinityLoadoutRules.IsRowAvailable(AffinityLoadoutRules.PrimaryOnlyRow, _activeSlotIsSecondary) ? 1f : 0.4f;
+            // Unity doesn't reliably re-run nested Layout Group / Content Size
+            // Fitter passes the moment a previously-inactive hierarchy is
+            // reactivated - without forcing it, Content can be left at a stale
+            // (often zero) size.
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)treeRoot.transform);
         }
 
         private void RefreshSelectedHighlights()
         {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
             LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            bool locked = IsBrowsedAffinityLockedIn();
+            AffinityDefinition primary = selection != null ? selection.Primary : null;
+            AffinityDefinition secondary = selection != null ? selection.Secondary : null;
 
-            _affinityNode?.SetSelected(locked);
+            HighlightPathIcons(_primaryPathIcons, primary);
+            HighlightPathIcons(_secondaryPathIcons, secondary);
 
-            for (int i = 0; i < _ultimateNodes.Length; i++)
+            for (int i = 0; i < _primaryUltimateNodes.Length; i++)
             {
-                UltimateDefinition ultimate = GetUltimate(affinity, i);
-                bool selected = locked && !_activeSlotIsSecondary && selection != null && ultimate != null && selection.Ultimate == ultimate;
-                _ultimateNodes[i]?.SetSelected(selected);
+                UltimateDefinition ultimate = GetUltimate(primary, i);
+                bool selected = primary != null && selection != null && ultimate != null && selection.Ultimate == ultimate;
+                _primaryUltimateNodes[i]?.SetSelected(selected);
             }
 
-            for (int i = 0; i < _perkNodes.Length; i++)
+            for (int i = 0; i < _primaryPerkNodes.Length; i++)
             {
                 int row = i / 3;
                 int column = i % 3;
-                PerkDefinition perk = affinity != null ? affinity.GetPerk(row, column) : null;
-                bool selected = locked && selection != null && perk != null && selection.GetPerk(row, _activeSlotIsSecondary) == perk;
-                _perkNodes[i]?.SetSelected(selected);
+                PerkDefinition perk = primary != null ? primary.GetPerk(row, column) : null;
+                bool selected = selection != null && perk != null && selection.GetPerk(row, asSecondary: false) == perk;
+                _primaryPerkNodes[i]?.SetSelected(selected);
             }
+
+            for (int i = 0; i < _secondaryPerkNodes.Length; i++)
+            {
+                SecondaryPerkSlot(i, out int row, out int column);
+                PerkDefinition perk = secondary != null ? secondary.GetPerk(row, column) : null;
+                bool selected = selection != null && perk != null && selection.GetPerk(row, asSecondary: true) == perk;
+                _secondaryPerkNodes[i]?.SetSelected(selected);
+            }
+        }
+
+        private void HighlightPathIcons(AffinityTreeNodeUI[] icons, AffinityDefinition selected)
+        {
+            if (icons == null) return;
+
+            for (int i = 0; i < icons.Length; i++)
+                icons[i]?.SetSelected(selected != null && GetAffinity(i) == selected);
         }
 
         private void RefreshStatusText()
@@ -408,17 +390,6 @@ namespace OffAngle.UI.Affinities
 
             LocalAffinitySelection selection = LocalAffinitySelection.Instance;
             _statusText.text = selection != null && selection.IsComplete ? "Loadout Complete" : "Loadout Incomplete";
-        }
-
-        private void RefreshSelectButtonLabel()
-        {
-            // The Select row is only ever visible while the active slot has no
-            // locked-in affinity yet (see RefreshVisibilityState), so there is no
-            // "already selected" state to reflect here.
-            if (_selectButtonLabel != null)
-                _selectButtonLabel.text = "Select";
-            if (_selectButton != null)
-                _selectButton.interactable = CurrentBrowsedAffinity() != null;
         }
 
         private void RefreshCountdownText()
@@ -458,20 +429,123 @@ namespace OffAngle.UI.Affinities
         }
 
         // ------------------------------------------------------------------
-        // Node clicks
+        // Clicks
         // ------------------------------------------------------------------
 
-        private void HandleAffinityNodeClicked()
+        private void HandlePathIconClicked(int index, bool asSecondary)
         {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
+            AffinityDefinition affinity = GetAffinity(index);
             if (affinity == null) return;
 
-            InspectAffinityPassive(affinity);
+            InspectAffinityPreview(affinity);
+
+            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
+            if (selection == null) return;
+
+            if (asSecondary)
+            {
+                if (selection.Primary == null || affinity == selection.Primary) return;
+                if (selection.Secondary == affinity) return;
+                selection.SetSecondary(affinity);
+            }
+            else
+            {
+                if (selection.Primary == affinity) return;
+                selection.SetPrimary(affinity);
+            }
         }
 
-        // Passives don't always have their own icon (older data predates the
-        // field) - fall back to the parent affinity's icon rather than showing
-        // a blank image.
+        private void HandlePrimarySelectedNodeClicked()
+        {
+            AffinityDefinition primary = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+            if (primary != null)
+                InspectAffinityPreview(primary);
+        }
+
+        private void HandleSecondarySelectedNodeClicked()
+        {
+            AffinityDefinition secondary = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Secondary
+                : null;
+            if (secondary != null)
+                InspectAffinityPreview(secondary);
+        }
+
+        private void HandlePrimaryPassiveClicked()
+        {
+            AffinityDefinition primary = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+            if (primary != null)
+                InspectAffinityPassive(primary);
+        }
+
+        private void HandlePrimaryUltimateClicked(int index)
+        {
+            AffinityDefinition affinity = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+            UltimateDefinition ultimate = GetUltimate(affinity, index);
+            if (ultimate == null) return;
+
+            _descriptionPanel?.Inspect(ultimate.Icon, ultimate.DisplayName, ultimate.Description);
+
+            if (affinity == null) return;
+            LocalAffinitySelection.Instance?.SetUltimate(ultimate);
+        }
+
+        private void HandlePrimaryPerkClicked(int index)
+        {
+            int row = index / 3;
+            int column = index % 3;
+
+            AffinityDefinition affinity = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Primary
+                : null;
+            PerkDefinition perk = affinity != null ? affinity.GetPerk(row, column) : null;
+            if (perk == null) return;
+
+            _descriptionPanel?.Inspect(perk.Icon, perk.DisplayName, perk.Description);
+
+            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
+            if (selection == null || affinity == null) return;
+            if (!AffinityLoadoutRules.IsRowAvailable(row, asSecondary: false)) return;
+
+            if (selection.GetPerk(row, asSecondary: false) == perk)
+                selection.ClearPerk(row, asSecondary: false);
+            else
+                selection.SetPerk(perk, asSecondary: false);
+        }
+
+        private void HandleSecondaryPerkClicked(int index)
+        {
+            SecondaryPerkSlot(index, out int row, out int column);
+
+            AffinityDefinition affinity = LocalAffinitySelection.Instance != null
+                ? LocalAffinitySelection.Instance.Secondary
+                : null;
+            PerkDefinition perk = affinity != null ? affinity.GetPerk(row, column) : null;
+            if (perk == null) return;
+
+            _descriptionPanel?.Inspect(perk.Icon, perk.DisplayName, perk.Description);
+
+            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
+            if (selection == null || affinity == null) return;
+            if (!AffinityLoadoutRules.IsRowAvailable(row, asSecondary: true)) return;
+
+            if (selection.GetPerk(row, asSecondary: true) == perk)
+                selection.ClearPerk(row, asSecondary: true);
+            else
+                selection.SetPerk(perk, asSecondary: true);
+        }
+
+        private void InspectAffinityPreview(AffinityDefinition affinity)
+        {
+            _descriptionPanel?.Inspect(affinity.Icon, affinity.DisplayName, "");
+        }
+
         private void InspectAffinityPassive(AffinityDefinition affinity)
         {
             if (affinity.Passive != null)
@@ -481,69 +555,8 @@ namespace OffAngle.UI.Affinities
             }
             else
             {
-                _descriptionPanel?.Inspect(affinity.Icon, affinity.DisplayName, "");
+                InspectAffinityPreview(affinity);
             }
-        }
-
-        private void HandleUltimateClicked(int index)
-        {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
-            UltimateDefinition ultimate = GetUltimate(affinity, index);
-            if (ultimate == null) return;
-
-            _descriptionPanel?.Inspect(ultimate.Icon, ultimate.DisplayName, ultimate.Description);
-
-            if (!IsBrowsedAffinityLockedIn() || _activeSlotIsSecondary) return;
-
-            LocalAffinitySelection.Instance?.SetUltimate(ultimate);
-        }
-
-        private void HandlePerkClicked(int index)
-        {
-            int row = index / 3;
-            int column = index % 3;
-
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
-            PerkDefinition perk = affinity != null ? affinity.GetPerk(row, column) : null;
-            if (perk == null) return;
-
-            _descriptionPanel?.Inspect(perk.Icon, perk.DisplayName, perk.Description);
-
-            if (!IsBrowsedAffinityLockedIn() || !AffinityLoadoutRules.IsRowAvailable(row, _activeSlotIsSecondary)) return;
-
-            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (selection == null) return;
-
-            if (selection.GetPerk(row, _activeSlotIsSecondary) == perk)
-                selection.ClearPerk(row, _activeSlotIsSecondary);
-            else
-                selection.SetPerk(perk, _activeSlotIsSecondary);
-        }
-
-        private void HandleSelectClicked()
-        {
-            AffinityDefinition affinity = CurrentBrowsedAffinity();
-            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (affinity == null || selection == null) return;
-
-            if (_activeSlotIsSecondary)
-                selection.SetSecondary(affinity);
-            else
-                selection.SetPrimary(affinity);
-        }
-
-        // Clears the active slot's affinity so the player can browse and pick
-        // again. SelectionChanged -> RefreshVisibilityState is what flips the UI
-        // back from tree+Deselect to carousel+Select.
-        private void HandleDeselectClicked()
-        {
-            LocalAffinitySelection selection = LocalAffinitySelection.Instance;
-            if (selection == null) return;
-
-            if (_activeSlotIsSecondary)
-                selection.SetSecondary(null);
-            else
-                selection.SetPrimary(null);
         }
 
         private void HandleConfirmButtonClicked()
@@ -571,23 +584,14 @@ namespace OffAngle.UI.Affinities
         }
 
         // ------------------------------------------------------------------
-        // LocalAffinitySelection / AffinitySelectCoordinator callbacks
+        // Callbacks
         // ------------------------------------------------------------------
 
         private void HandleSelectionChanged()
         {
-            RefreshVisibilityState();
-            RefreshTreeInteractability();
-            RefreshSelectedHighlights();
-            RefreshStatusText();
-            RefreshConfirmButton();
-            RefreshSelectButtonLabel();
+            RefreshAll();
         }
 
-        // FishNet activates scene NetworkObjects a beat later than plain scene
-        // MonoBehaviours, so Instance can still be null the first time OnEnable
-        // runs. InstanceReady calls this again once it's actually set - same
-        // caveat LobbyPlayerList/LobbyMenuUI document.
         private void HandleCoordinatorReady()
         {
             if (AffinitySelectCoordinator.Instance == null) return;
@@ -595,5 +599,42 @@ namespace OffAngle.UI.Affinities
             RefreshConfirmButton();
             RefreshCountdownText();
         }
+
+        // ------------------------------------------------------------------
+        // Helpers
+        // ------------------------------------------------------------------
+
+        private int AffinityCount()
+        {
+            if (_registry == null || _registry.AllAffinities == null) return 0;
+            return _registry.AllAffinities.Count;
+        }
+
+        private AffinityDefinition GetAffinity(int index)
+        {
+            if (_registry == null || _registry.AllAffinities == null) return null;
+            if (index < 0 || index >= _registry.AllAffinities.Count) return null;
+            return _registry.AllAffinities[index];
+        }
+
+        private int IndexOf(AffinityDefinition affinity)
+        {
+            if (affinity == null || _registry == null || _registry.AllAffinities == null) return -1;
+            return _registry.AllAffinities.IndexOf(affinity);
+        }
+
+        private static UltimateDefinition GetUltimate(AffinityDefinition affinity, int index)
+        {
+            if (affinity == null || affinity.Ultimates == null || index < 0 || index >= affinity.Ultimates.Count)
+                return null;
+            return affinity.Ultimates[index];
+        }
+
+        private static void SecondaryPerkSlot(int index, out int row, out int column)
+        {
+            column = index % 3;
+            row = index < 3 ? 0 : 2;
+        }
+
     }
 }
