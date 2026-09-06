@@ -46,5 +46,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.BulletTracer
   _material: {fileID: 0}
   _color: {r: 1, g: 0.85, b: 0.35, a: 1}
-  _width: 0.02
-  _lifetime: 0.06
+  _width: 0.04
+  _tracerLength: 5
+  _travelTime: 0.08
+  _capVertices: 0
