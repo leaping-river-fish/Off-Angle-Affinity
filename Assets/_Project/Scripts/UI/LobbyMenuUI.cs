@@ -14,6 +14,7 @@
 //   itself immediately rather than waiting on a Connected event.
 // =============================================================================
 
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -38,24 +39,42 @@ namespace OffAngle.UI
         [SerializeField] private PlayerRowUI _playerRowPrefab;
         [SerializeField] private Button _startGameButton;
         [SerializeField] private Button _leaveGameButton;
+        [Tooltip("Copies the current join code (not the host address) to the system clipboard. Assign on the Lobby Menu prefab.")]
+        [SerializeField] private Button _copyCodeButton;
+
+        [Header("Copy Feedback")]
+        [Tooltip("Starts hidden. Shown briefly after a successful copy. Parent it under the copy button so it follows that control.")]
+        [SerializeField] private GameObject _copiedTooltip;
+        [Tooltip("Optional. If assigned, set to Copied Tooltip Message when shown.")]
+        [SerializeField] private TMP_Text _copiedTooltipText;
+        [SerializeField] private string _copiedTooltipMessage = "Copied to clipboard";
+        [Tooltip("Seconds the tooltip stays fully visible before the fade starts.")]
+        [SerializeField] private float _copiedTooltipDuration = 1.5f;
+        [Tooltip("Seconds to fade the tooltip out. 0 skips the fade and hides immediately.")]
+        [SerializeField] private float _copiedTooltipFadeDuration = 0.35f;
 
         private readonly List<PlayerRowUI> _rows = new List<PlayerRowUI>();
 
-        // Code and address arrive as two separate events, so both are kept and
-        // the label is rebuilt from scratch whenever either changes.
         private string _sessionCode = "";
-        private string _hostAddress = "";
+        private Coroutine _copiedTooltipRoutine;
+        private CanvasGroup _copiedTooltipCanvasGroup;
 
         private void Awake()
         {
             if (_controller == null)
                 _controller = FindFirstObjectByType<NetworkMenuController>();
 
+            CacheCopiedTooltipCanvasGroup();
+            HideCopiedTooltip();
+
             if (_startGameButton != null)
                 _startGameButton.onClick.AddListener(OnStartGameClicked);
 
             if (_leaveGameButton != null)
                 _leaveGameButton.onClick.AddListener(OnLeaveGameClicked);
+
+            if (_copyCodeButton != null)
+                _copyCodeButton.onClick.AddListener(OnCopyCodeClicked);
         }
 
         private void OnEnable()
@@ -65,7 +84,6 @@ namespace OffAngle.UI
 
             _controller.Disconnected += HandleDisconnected;
             _controller.SessionCodeReady += HandleSessionCodeReady;
-            _controller.HostAddressReady += HandleHostAddressReady;
             LobbyPlayerList.InstanceReady += SubscribeToPlayerList;
             PlayerNameRegistry.InstanceReady += SubscribeToNameRegistry;
 
@@ -87,12 +105,12 @@ namespace OffAngle.UI
 
             _controller.Disconnected -= HandleDisconnected;
             _controller.SessionCodeReady -= HandleSessionCodeReady;
-            _controller.HostAddressReady -= HandleHostAddressReady;
             LobbyPlayerList.InstanceReady -= SubscribeToPlayerList;
             PlayerNameRegistry.InstanceReady -= SubscribeToNameRegistry;
 
             UnsubscribeFromPlayerList();
             UnsubscribeFromNameRegistry();
+            HideCopiedTooltip();
         }
 
         private void OnDestroy()
@@ -102,6 +120,9 @@ namespace OffAngle.UI
 
             if (_leaveGameButton != null)
                 _leaveGameButton.onClick.RemoveListener(OnLeaveGameClicked);
+
+            if (_copyCodeButton != null)
+                _copyCodeButton.onClick.RemoveListener(OnCopyCodeClicked);
         }
 
         // ------------------------------------------------------------------
@@ -116,12 +137,11 @@ namespace OffAngle.UI
             if (_startGameButton != null)
                 _startGameButton.interactable = _controller.IsHost;
 
-            // The code/address are announced right when the server starts,
-            // which is what triggers the Lobby scene to load in the first
-            // place -- so this object never exists in time to catch those
-            // events firing. Pull whatever NetworkMenuController already has.
+            // The code is announced right when the server starts, which is
+            // what triggers the Lobby scene to load in the first place -- so
+            // this object never exists in time to catch that event firing.
+            // Pull whatever NetworkMenuController already has.
             _sessionCode = _controller.CurrentSessionCode;
-            _hostAddress = _controller.CurrentHostAddress;
             RefreshCodeText();
 
             SubscribeToPlayerList();
@@ -138,8 +158,8 @@ namespace OffAngle.UI
             ClearRows();
 
             _sessionCode = "";
-            _hostAddress = "";
             RefreshCodeText();
+            HideCopiedTooltip();
         }
 
         private void HandleSessionCodeReady(string code)
@@ -148,30 +168,22 @@ namespace OffAngle.UI
             RefreshCodeText();
         }
 
-        private void HandleHostAddressReady(string address)
-        {
-            _hostAddress = address ?? "";
-            RefreshCodeText();
-        }
-
-        // The address is shown under the code on purpose. If the LAN IP resolver
-        // ever picks the wrong adapter the code still looks perfectly valid, and
-        // the joiner just sees "Connection failed" -- indistinguishable from a
-        // blocked port. Showing the actual IP makes that case obvious on sight.
         private void RefreshCodeText()
         {
-            if (_codeText == null)
-                return;
-
-            if (string.IsNullOrEmpty(_sessionCode))
+            if (_codeText != null)
             {
-                _codeText.text = "";
-                return;
+                _codeText.text = string.IsNullOrEmpty(_sessionCode)
+                    ? ""
+                    : $"Code: {_sessionCode}";
             }
 
-            _codeText.text = string.IsNullOrEmpty(_hostAddress)
-                ? $"Code: {_sessionCode}"
-                : $"Code: {_sessionCode}\n<size=70%>{_hostAddress}</size>";
+            RefreshCopyCodeButton();
+        }
+
+        private void RefreshCopyCodeButton()
+        {
+            if (_copyCodeButton != null)
+                _copyCodeButton.interactable = !string.IsNullOrEmpty(_sessionCode);
         }
 
         // ------------------------------------------------------------------
@@ -187,6 +199,7 @@ namespace OffAngle.UI
             if (LobbyPlayerList.Instance == null)
                 return;
 
+            LobbyPlayerList.Instance.ConnectionIds.OnChange -= HandlePlayerListChanged;
             LobbyPlayerList.Instance.ConnectionIds.OnChange += HandlePlayerListChanged;
             RebuildRows();
         }
@@ -210,6 +223,7 @@ namespace OffAngle.UI
             if (PlayerNameRegistry.Instance == null)
                 return;
 
+            PlayerNameRegistry.Instance.Names.OnChange -= HandleNameRegistryChanged;
             PlayerNameRegistry.Instance.Names.OnChange += HandleNameRegistryChanged;
             RebuildRows();
         }
@@ -262,5 +276,84 @@ namespace OffAngle.UI
         // connection (and the server too, if host) and returns to the main
         // menu once the resulting Stopped callback fires.
         private void OnLeaveGameClicked() => _controller?.LeaveSession();
+
+        private void OnCopyCodeClicked()
+        {
+            if (string.IsNullOrEmpty(_sessionCode))
+                return;
+
+            GUIUtility.systemCopyBuffer = _sessionCode;
+            ShowCopiedTooltip();
+        }
+
+        private void ShowCopiedTooltip()
+        {
+            if (_copiedTooltip == null)
+                return;
+
+            CacheCopiedTooltipCanvasGroup();
+
+            if (_copiedTooltipText != null)
+                _copiedTooltipText.text = _copiedTooltipMessage;
+
+            if (_copiedTooltipRoutine != null)
+                StopCoroutine(_copiedTooltipRoutine);
+
+            _copiedTooltip.SetActive(true);
+            SetCopiedTooltipAlpha(1f);
+            _copiedTooltipRoutine = StartCoroutine(FadeCopiedTooltipOut());
+        }
+
+        private IEnumerator FadeCopiedTooltipOut()
+        {
+            yield return new WaitForSecondsRealtime(_copiedTooltipDuration);
+
+            float fadeDuration = Mathf.Max(0f, _copiedTooltipFadeDuration);
+            if (fadeDuration > 0f)
+            {
+                float elapsed = 0f;
+                while (elapsed < fadeDuration)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    SetCopiedTooltipAlpha(1f - Mathf.Clamp01(elapsed / fadeDuration));
+                    yield return null;
+                }
+            }
+
+            HideCopiedTooltip();
+        }
+
+        private void HideCopiedTooltip()
+        {
+            if (_copiedTooltipRoutine != null)
+            {
+                StopCoroutine(_copiedTooltipRoutine);
+                _copiedTooltipRoutine = null;
+            }
+
+            SetCopiedTooltipAlpha(0f);
+
+            if (_copiedTooltip != null)
+                _copiedTooltip.SetActive(false);
+        }
+
+        private void CacheCopiedTooltipCanvasGroup()
+        {
+            if (_copiedTooltip == null || _copiedTooltipCanvasGroup != null)
+                return;
+
+            _copiedTooltipCanvasGroup = _copiedTooltip.GetComponent<CanvasGroup>();
+            if (_copiedTooltipCanvasGroup == null)
+                _copiedTooltipCanvasGroup = _copiedTooltip.AddComponent<CanvasGroup>();
+
+            _copiedTooltipCanvasGroup.blocksRaycasts = false;
+            _copiedTooltipCanvasGroup.interactable = false;
+        }
+
+        private void SetCopiedTooltipAlpha(float alpha)
+        {
+            if (_copiedTooltipCanvasGroup != null)
+                _copiedTooltipCanvasGroup.alpha = alpha;
+        }
     }
 }

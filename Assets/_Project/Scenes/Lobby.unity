@@ -127,18 +127,6 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
-    - target: {fileID: 365561223478561648, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_AnchorMax.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 365561223478561648, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_AnchorMax.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 365561223478561648, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_SizeDelta.x
-      value: 0
-      objectReference: {fileID: 0}
     - target: {fileID: 2483205344980503435, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
       propertyPath: m_Pivot.x
       value: 0
@@ -222,18 +210,6 @@ PrefabInstance:
     - target: {fileID: 3869812167704932055, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
       propertyPath: m_Name
       value: Lobby Menu
-      objectReference: {fileID: 0}
-    - target: {fileID: 6159062926088474466, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_AnchorMax.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 6159062926088474466, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_AnchorMax.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 6159062926088474466, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
-      propertyPath: m_AnchorMin.y
-      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7546314611396383766, guid: 4963c02fa108f1b44a48c04ac03dfd84, type: 3}
       propertyPath: _controller
