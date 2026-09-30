@@ -258,6 +258,14 @@ namespace OffAngle.Movement
         public bool GroundedLocked;
 
         /// <summary>
+        /// The single definition of "sprint speed is allowed right now":
+        /// sprint input held and not under the GroundedLocked debuff.
+        /// GroundedState/AirborneState use this for their speed cap, and
+        /// MovementStateMachine.IsSprinting builds on it for presentation.
+        /// </summary>
+        public bool IsSprintActive => Input != null && Input.IsSprinting && !GroundedLocked;
+
+        /// <summary>
         /// The ability currently driving MovementStateId.AbilityMovement, or
         /// null when no ability is active. Set by
         /// MovementStateMachine.BeginAbilityMovement(); cleared by

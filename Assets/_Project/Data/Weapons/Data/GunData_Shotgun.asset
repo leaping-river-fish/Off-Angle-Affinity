@@ -18,7 +18,7 @@ MonoBehaviour:
   FireMode: 0
   BurstCount: 3
   MagazineSize: 8
-  StartingReserveAmmo: 24
+  StartingReserveAmmo: 64
   ReloadTime: 2
   AutoReloadOnEmpty: 1
   ShotBehavior: {fileID: 11400000, guid: 283db7c4c6fd7e34e9333d492f622f44, type: 2}

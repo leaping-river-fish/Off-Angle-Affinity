@@ -172,8 +172,22 @@ namespace OffAngle.Movement
         /// </summary>
         public float CrouchAmount => _ctx?.CrouchAmount ?? 0f;
 
+        /// <summary>
+        /// World-space velocity the active movement state is applying.
+        /// Presentation reads this; do not write it from animation code.
+        /// Meaningless on remotes.
+        /// </summary>
+        public Vector3 Velocity => _ctx?.Velocity ?? Vector3.zero;
+
         /// <summary>True while GroundedState is the active state.</summary>
         public bool IsGrounded => CurrentStateId == MovementStateId.Grounded;
+
+        /// <summary>
+        /// True while grounded with the sprint speed cap actually in effect
+        /// (sprint input held and not GroundedLocked). Read-only presentation
+        /// hook for animation/networking; does not affect movement.
+        /// </summary>
+        public bool IsSprinting => _ctx != null && IsGrounded && _ctx.IsSprintActive;
 
         /// <summary>True while AirborneState is the active state.</summary>
         public bool IsAirborne => CurrentStateId == MovementStateId.Airborne;

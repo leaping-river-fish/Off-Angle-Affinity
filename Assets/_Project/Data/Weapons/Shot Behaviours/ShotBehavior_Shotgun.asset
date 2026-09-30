@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7cd561c4f836f8d4fa0556f10606683d, type: 3}
   m_Name: ShotBehavior_Shotgun
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Weapons.ShotgunShotBehavior
-  PelletCount: 14
-  PelletDamage: 12
-  PelletHeadshotDamage: 18
+  PelletCount: 15
+  PelletDamage: 14
+  PelletHeadshotDamage: 21
   SpreadPattern: 0
   HorizontalSpread: 6
   VerticalSpread: 6

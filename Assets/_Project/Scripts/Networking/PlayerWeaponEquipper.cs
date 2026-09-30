@@ -45,6 +45,9 @@
 //   RebuildThirdPersonFromSync), independent of the owner-only first-person
 //   copy. The owner's own third-person copy is hidden from themselves via
 //   PlayerVisibility, same as the rest of their third-person body.
+//   After parenting, the third-person root is shifted so that weapon's
+//   RightHandAttach matches the WeaponSocket world pose. The socket itself
+//   is never moved. First-person instances are not aligned.
 // =============================================================================
 
 using System;
@@ -124,6 +127,16 @@ namespace OffAngle.Networking
         private readonly SyncVar<bool> _weaponHiddenOverride = new SyncVar<bool>();
 
         private readonly Dictionary<WeaponCategory, Gun> _thirdPersonInstances = new();
+
+        // Child marker on the weapon prefab. Authored per weapon at the right-hand
+        // grip. Only the third-person instance is aligned to the socket; the
+        // first-person copy of the same prefab is left at the holder origin.
+        private const string RightHandAttachName = "RightHandAttach";
+
+        // Runtime parent between WeaponSocket and the third-person Gun. Alignment
+        // lives here so the Gun Animator can keep writing local identity / recoil
+        // on the weapon root without undoing the grip offset.
+        private const string RightHandAlignName = "RightHandAlign";
 
         private WeaponCategory ActiveCategory =>
             (_categoryCycleOrder != null && _activeIndex >= 0 && _activeIndex < _categoryCycleOrder.Length)
@@ -615,7 +628,7 @@ namespace OffAngle.Networking
             {
                 if (instance == null) continue;
                 _playerVisibility?.UnregisterDynamicRenderers(instance.GetComponentsInChildren<Renderer>(true));
-                Destroy(instance.gameObject);
+                DestroyThirdPersonVisual(instance);
             }
             _thirdPersonInstances.Clear();
 
@@ -628,14 +641,81 @@ namespace OffAngle.Networking
                 WeaponDefinition definition = ResolveDefinitionById(id);
                 if (definition == null || definition.WeaponPrefab == null) continue;
 
-                Gun instance = Instantiate(definition.WeaponPrefab, _thirdPersonWeaponHolder);
+                Transform visualRoot = CreateThirdPersonVisualRoot(_thirdPersonWeaponHolder);
+                Gun instance = Instantiate(definition.WeaponPrefab, visualRoot);
                 instance.transform.localPosition = Vector3.zero;
                 instance.transform.localRotation = Quaternion.identity;
-                instance.gameObject.SetActive(i == _syncedActiveIndex.Value && !_weaponHiddenOverride.Value);
+                AlignRightHandAttachToSocket(visualRoot, _thirdPersonWeaponHolder);
+                visualRoot.gameObject.SetActive(i == _syncedActiveIndex.Value && !_weaponHiddenOverride.Value);
 
                 _thirdPersonInstances[category] = instance;
                 _playerVisibility?.RegisterDynamicRenderers(instance.GetComponentsInChildren<Renderer>(true));
             }
+        }
+
+        private static Transform CreateThirdPersonVisualRoot(Transform socket)
+        {
+            Transform root = new GameObject(RightHandAlignName).transform;
+            root.SetParent(socket, false);
+            root.localPosition = Vector3.zero;
+            root.localRotation = Quaternion.identity;
+            root.localScale = Vector3.one;
+            return root;
+        }
+
+        private static void DestroyThirdPersonVisual(Gun instance)
+        {
+            Transform weapon = instance.transform;
+            Transform parent = weapon.parent;
+            if (parent != null && parent.name == RightHandAlignName)
+                Destroy(parent.gameObject);
+            else
+                Destroy(weapon.gameObject);
+        }
+
+        /// <summary>
+        /// Moves <paramref name="visualRoot"/> so the nested RightHandAttach
+        /// matches <paramref name="socket"/> in world position and rotation.
+        /// The socket is read-only. A missing marker leaves the root at the
+        /// socket origin. The Gun stays at local identity under the root so
+        /// its Animator cannot wipe the grip offset.
+        /// </summary>
+        /// <remarks>
+        /// Position is solved in world space after the rotation is applied.
+        /// InverseTransformPoint / TransformPoint include the weapon's lossy
+        /// scale, so a non-1 character scale or a scale-compensated socket
+        /// still lands the grip on the socket. Rotation uses Transform.rotation
+        /// directly, which stays valid when a scaled matrix would not.
+        /// </remarks>
+        private static void AlignRightHandAttachToSocket(Transform visualRoot, Transform socket)
+        {
+            if (visualRoot == null || socket == null)
+                return;
+
+            Transform grip = FindChildByName(visualRoot, RightHandAttachName);
+            if (grip == null)
+                return;
+
+            Vector3 gripLocalPosition = visualRoot.InverseTransformPoint(grip.position);
+            Quaternion gripLocalRotation = Quaternion.Inverse(visualRoot.rotation) * grip.rotation;
+
+            visualRoot.rotation = socket.rotation * Quaternion.Inverse(gripLocalRotation);
+            visualRoot.position += socket.position - visualRoot.TransformPoint(gripLocalPosition);
+        }
+
+        private static Transform FindChildByName(Transform root, string childName)
+        {
+            if (root.name == childName)
+                return root;
+
+            for (int i = 0; i < root.childCount; i++)
+            {
+                Transform found = FindChildByName(root.GetChild(i), childName);
+                if (found != null)
+                    return found;
+            }
+
+            return null;
         }
     }
 }

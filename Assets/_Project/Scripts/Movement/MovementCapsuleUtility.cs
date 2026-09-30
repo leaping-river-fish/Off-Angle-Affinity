@@ -51,8 +51,24 @@ namespace OffAngle.Movement
             Vector3 bottom = ctx.PlayerTransform.position + Vector3.up * (currentTop  - radius);
             Vector3 top    = ctx.PlayerTransform.position + Vector3.up * (standingTop - radius);
 
-            return !Physics.CheckCapsule(bottom, top, radius, ctx.Settings.StandCheckMask, QueryTriggerInteraction.Ignore);
+            // The player's own colliders (hitboxes, third-person body, ...) live
+            // under PlayerTransform and must never count as an obstruction,
+            // regardless of which layer they are on.
+            int count = Physics.OverlapCapsuleNonAlloc(
+                bottom, top, radius, OverlapBuffer, ctx.Settings.StandCheckMask, QueryTriggerInteraction.Ignore);
+
+            Transform self = ctx.PlayerTransform;
+            for (int i = 0; i < count; i++)
+            {
+                Collider hit = OverlapBuffer[i];
+                if (hit != null && !hit.transform.IsChildOf(self))
+                    return false;
+            }
+
+            return true;
         }
+
+        private static readonly Collider[] OverlapBuffer = new Collider[64];
 
         /// <summary>
         /// Applies ctx.CrouchAmount (0 = standing, 1 = fully crouched) to the

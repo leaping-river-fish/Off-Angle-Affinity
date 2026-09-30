@@ -328,7 +328,7 @@ namespace OffAngle.Movement.States
                 return;
 
             // "Grounded" debuff caps this at walk speed - see MovementStateContext.GroundedLocked.
-            bool sprinting = ctx.Input.IsSprinting && !ctx.GroundedLocked;
+            bool sprinting = ctx.IsSprintActive;
             float speed = (sprinting
                 ? ctx.Settings.SprintSpeed
                 : ctx.Settings.WalkSpeed) * ctx.SpeedMultiplier;
