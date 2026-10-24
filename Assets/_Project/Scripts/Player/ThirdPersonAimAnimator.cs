@@ -36,8 +36,8 @@ namespace OffAngle.Player
         [Tooltip("Character facing for AimYaw. Leave null to use this transform (player root).")]
         [SerializeField] private Transform _characterRoot;
 
-        [Tooltip("Animator layer that has IK Pass enabled (Upper Body Aim is layer 1).")]
-        [SerializeField] private int _ikLayerIndex = 1;
+        [Tooltip("Name of the Animator layer that has IK Pass enabled. Resolved to an index at runtime.")]
+        [SerializeField] private string _ikLayerName = "Upper Body Aim";
 
         [Header("Mixamo Yaw Calibration")]
         [Tooltip("Degrees added to AimYaw to cancel Mixamo's baked rifle offset. Start at 0; raise until the upper body lines up with camera forward.")]
@@ -62,6 +62,8 @@ namespace OffAngle.Player
         private static readonly int AimYawHash = Animator.StringToHash("AimYaw");
         private static readonly int AimPitchHash = Animator.StringToHash("AimPitch");
 
+        private int _ikLayerIndex = -1;
+        private bool _ikLayerLookupFailed;
         private bool _bonesCached;
         private bool _hasAimYawParam;
         private bool _hasAimPitchParam;
@@ -84,9 +86,27 @@ namespace OffAngle.Player
 
             _pitchOverride = _pitchOverrideBehaviour as IAimPitchOverride;
 
+            if (_animator != null)
+                _ikLayerIndex = _animator.GetLayerIndex(_ikLayerName);
+
             CacheBones();
             CacheAnimatorParameters();
             EnsureIkRelay();
+        }
+
+        // Retried on the first IK callback because the Animator may not be
+        // initialized yet in Awake. Warns once, then IK is skipped.
+        private void EnsureIkLayer()
+        {
+            if (_ikLayerLookupFailed || _animator == null || !_animator.isInitialized)
+                return;
+
+            _ikLayerIndex = _animator.GetLayerIndex(_ikLayerName);
+            if (_ikLayerIndex < 0)
+            {
+                _ikLayerLookupFailed = true;
+                Debug.LogWarning($"[{nameof(ThirdPersonAimAnimator)}] Animator layer '{_ikLayerName}' not found. Aim offsets are disabled.", this);
+            }
         }
 
         private void OnAnimatorIK(int layerIndex)

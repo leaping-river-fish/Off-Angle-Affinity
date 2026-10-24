@@ -183,11 +183,16 @@ namespace OffAngle.Movement
         public bool IsGrounded => CurrentStateId == MovementStateId.Grounded;
 
         /// <summary>
-        /// True while grounded with the sprint speed cap actually in effect
-        /// (sprint input held and not GroundedLocked). Read-only presentation
-        /// hook for animation/networking; does not affect movement.
+        /// True while on the ground: Grounded, Crouching, Sliding, or an
+        /// ability movement that is touching the ground. Every grounded-family
+        /// state already hands off to Airborne when Controller.isGrounded goes
+        /// false, so this inherits gameplay's own debouncing.
         /// </summary>
-        public bool IsSprinting => _ctx != null && IsGrounded && _ctx.IsSprintActive;
+        public bool IsOnGround =>
+            CurrentStateId == MovementStateId.Grounded
+            || CurrentStateId == MovementStateId.Crouching
+            || CurrentStateId == MovementStateId.Sliding
+            || (IsInAbilityMovement && _ctx != null && _ctx.Controller != null && _ctx.Controller.isGrounded);
 
         /// <summary>True while AirborneState is the active state.</summary>
         public bool IsAirborne => CurrentStateId == MovementStateId.Airborne;

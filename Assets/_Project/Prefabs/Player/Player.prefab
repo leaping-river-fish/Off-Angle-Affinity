@@ -1556,6 +1556,7 @@ MonoBehaviour:
   - {fileID: 2319144375467705653}
   - {fileID: 8489149947095854926}
   - {fileID: 4829173650182736401}
+  - {fileID: 5105046524809733701}
   InitializedParentNetworkBehaviour: {fileID: 0}
   InitializedNestedNetworkObjects: []
   RuntimeParentNetworkBehaviour: {fileID: 0}
@@ -1566,7 +1567,7 @@ MonoBehaviour:
   _initializeOrder: 0
   _preventDespawnOnDisconnect: 0
   _defaultDespawnType: 0
-  _initializedTimestamp: -8584115052948321180
+  _initializedTimestamp: -8584096773991456252
 --- !u!114 &7921506639287146140
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1891,7 +1892,7 @@ MonoBehaviour:
   _componentIndexCache: 10
   _addedNetworkObject: {fileID: 6608746267949662875}
   _networkObjectCache: {fileID: 6608746267949662875}
-  _stateMachine: {fileID: 996271417525511594}
+  _locomotionSync: {fileID: 0}
   _thirdPersonBody: {fileID: 6882330827751275379}
   _characterController: {fileID: 1921241789862024080}
   _transitionDuration: 0.15
@@ -2073,7 +2074,19 @@ MonoBehaviour:
   _inputReader: {fileID: 0}
   _referenceSpeed: 7
   _dampTime: 0.12
-  _sprintMinSpeed: 0.5
+  _maxLocomotionSpeed: 1.5
+  _snapshot:
+    MoveX: 0
+    MoveY: 0
+    PlanarSpeed: 0
+    VerticalSpeed: 0
+    LocomotionSpeed: 0
+    IsCrouching: 0
+    IsGrounded: 0
+    IsAirborne: 0
+    IsSliding: 0
+    IsWallRunning: 0
+    IsAbilityMoving: 0
 --- !u!114 &7262822480649435097
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2090,14 +2103,14 @@ MonoBehaviour:
   _cameraController: {fileID: 5173098592073682576}
   _pitchOverrideBehaviour: {fileID: 4829173650182736401}
   _characterRoot: {fileID: 0}
-  _ikLayerIndex: 1
-  _mixamoYawCalibration: 40
+  _ikLayerName: Upper Body Aim
+  _mixamoYawCalibration: 0
   _maxYaw: 50
-  _maxPitch: 50
+  _maxPitch: 70
   _spineWeight: 0.25
-  _chestWeight: 0.5
-  _upperChestWeight: 0
-  _headWeight: 0.25
+  _chestWeight: 0.35
+  _upperChestWeight: 0.4
+  _headWeight: 0
   _invertYaw: 0
   _invertPitch: 0
 --- !u!114 &2615309907074812820
@@ -2114,7 +2127,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Player.ThirdPersonWeaponHandIk
   _animator: {fileID: 7889070327341442563}
   _thirdPersonWeaponHolder: {fileID: 3191743418172221075}
-  _ikLayerIndex: 1
+  _ikLayerName: Upper Body Aim
   _leftHandAttachName: LeftHandAttach
   _positionWeight: 1
   _rotationWeight: 0.35
@@ -2150,9 +2163,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1da8d00ee5e4b454f9662e5b82ed9e0f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OffAngle.Networking.NetworkPlayerLocomotionSync
-  _componentIndexCache: 255
+  _componentIndexCache: 20
   _addedNetworkObject: {fileID: 6608746267949662875}
-  _networkObjectCache: {fileID: 0}
+  _networkObjectCache: {fileID: 6608746267949662875}
+  _currentFlags: 0
 --- !u!1 &4500626514475088747
 GameObject:
   m_ObjectHideFlags: 0
@@ -4374,43 +4388,43 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 0
+      value: 0.03
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0
+      value: -0.01
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: 0.19
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 0.42595175
+      value: 0.5655084
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalRotation.x
-      value: -0.48357072
+      value: -0.4017586
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0.7502565
+      value: 0.6679347
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalRotation.z
-      value: 0.14778224
+      value: 0.26954302
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
-      value: -39.324
+      value: -54.535
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.y
-      value: 140.099
+      value: 111.76
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
-      value: -50.827
+      value: -23.552
       objectReference: {fileID: 0}
     - target: {fileID: 8871484954638655545, guid: 21798463e26591a4b94e65b3c4d384d0, type: 3}
       propertyPath: m_ConstrainProportionsScale

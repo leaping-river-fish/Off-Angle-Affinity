@@ -1,15 +1,14 @@
 // =============================================================================
-// NetworkPlayerCrouch — replicates crouch state and drives the third-person
-// capsule so every peer sees the same crouching player consistently.
+// NetworkPlayerCrouch — drives the third-person crouch visual and the
+// non-owner capsule so every peer sees the same crouching player consistently.
 //
-// AUTHORITY MODEL:
-//   Movement on this prefab is already client-authoritative (NetworkTransform
-//   with _clientAuthoritative: 1, no Prediction V2 - see NetworkPlayerController
-//   and MovementStateMachine headers). Crouch sync follows the same model
-//   rather than introducing a server round-trip: _isCrouching is an
-//   owner-writable SyncVar (WritePermission.ClientUnsynchronized), replicated
-//   to everyone except the owner (ReadPermission.ExcludeOwner - the owner
-//   already knows their own state via MovementStateMachine.IsCrouching).
+// NO NETWORKING OF ITS OWN:
+//   Crouch state is the Crouched bit of PlayerAnimFlags, carried by
+//   NetworkPlayerLocomotionSync (owner composes it from
+//   MovementStateMachine.CrouchAmount >= 0.5, remotes receive it). This
+//   component only reads that flag, so owner and remotes agree on crouch-jump
+//   and stand-up. It owns visuals only: Third Person Body scale and the
+//   non-owner CharacterController height.
 //
 // VISUAL / HITBOX:
 //   "Third Person Body" (parent of the visual Capsule mesh+collider and the
@@ -23,9 +22,7 @@
 //
 // ONE CODE PATH FOR ALL PEERS:
 //   Owner, remotes, and the server all run the same Update() loop that lerps
-//   toward the synced bool's target scale. The owner also independently polls
-//   MovementStateMachine.IsCrouching to know when to push a new value - but
-//   the resulting visual scale is applied identically everywhere.
+//   toward the Crouched flag's target scale.
 //
 // THE CHARACTERCONTROLLER GHOST-HITBOX PROBLEM:
 //   NetworkPlayerController only enables MovementStateMachine for the owner
@@ -38,13 +35,12 @@
 //   invisible "ghost" hitbox hovering over every crouched player - shots
 //   could land where the visible (correctly shrunk) body clearly isn't.
 //   Fix: this component also drives the CharacterController's height/center
-//   directly, using the exact same synced bool - but ONLY when !IsOwner, so
+//   directly, using the exact same Crouched flag - but ONLY when !IsOwner, so
 //   it never fights the owner's own precise, headroom-gated local simulation.
 // =============================================================================
 
 using FishNet.Object;
-using FishNet.Object.Synchronizing;
-using OffAngle.Movement;
+using OffAngle.Player;
 using UnityEngine;
 
 namespace OffAngle.Networking
@@ -52,7 +48,8 @@ namespace OffAngle.Networking
     public class NetworkPlayerCrouch : NetworkBehaviour
     {
         [Header("References")]
-        [SerializeField] private MovementStateMachine _stateMachine;
+        [Tooltip("Source of the Crouched flag. Leave null to auto-find on this GameObject.")]
+        [SerializeField] private NetworkPlayerLocomotionSync _locomotionSync;
         [Tooltip("The \"Third Person Body\" transform - parent of the visual Capsule and Head hitbox.")]
         [SerializeField] private Transform _thirdPersonBody;
         [Tooltip("CharacterController on this GameObject. Only resized here when !IsOwner - see the CHARACTERCONTROLLER GHOST-HITBOX PROBLEM note above.")]
@@ -66,10 +63,6 @@ namespace OffAngle.Networking
         [Tooltip("CharacterController height while fully crouched on non-owner peers. Must equal MovementSettings.CrouchHeight so the server's hitbox matches the owner's real one.")]
         [SerializeField] private float _crouchControllerHeight = 1f;
 
-        private readonly SyncVar<bool> _isCrouching =
-            new SyncVar<bool>(new SyncTypeSettings(WritePermission.ClientUnsynchronized, ReadPermission.ExcludeOwner));
-
-        private bool  _lastSentValue;
         private float _currentScaleY = 1f;
 
         // Set by SolarAscensionEffect while its own scale-up owns this same
@@ -93,8 +86,8 @@ namespace OffAngle.Networking
 
         private void Awake()
         {
-            if (_stateMachine == null)
-                _stateMachine = GetComponent<MovementStateMachine>();
+            if (_locomotionSync == null)
+                _locomotionSync = GetComponent<NetworkPlayerLocomotionSync>();
             if (_characterController == null)
                 _characterController = GetComponent<CharacterController>();
 
@@ -112,31 +105,27 @@ namespace OffAngle.Networking
             // Seed the visual immediately at the current synced value so a
             // late-joining observer does not see a standing player pop into
             // a crouch (or vice versa) on the first frame.
-            _currentScaleY = _isCrouching.Value ? _crouchScaleY : 1f;
+            bool crouched = IsCrouched();
+            _currentScaleY = crouched ? _crouchScaleY : 1f;
             ApplyScale();
 
-            _currentControllerHeight = _isCrouching.Value ? _crouchControllerHeight : _standingControllerHeight;
+            _currentControllerHeight = crouched ? _crouchControllerHeight : _standingControllerHeight;
             if (!base.IsOwner)
                 ApplyControllerHeight();
+        }
 
-            _lastSentValue = _isCrouching.Value;
+        private bool IsCrouched()
+        {
+            return _locomotionSync != null
+                && (_locomotionSync.Flags & PlayerAnimFlags.Crouched) != 0;
         }
 
         private void Update()
         {
-            if (base.IsOwner && _stateMachine != null)
-            {
-                bool crouching = _stateMachine.IsCrouching;
-                if (crouching != _lastSentValue)
-                {
-                    _lastSentValue = crouching;
-                    SetCrouching(crouching);
-                }
-            }
-
+            bool crouched = IsCrouched();
             float rate = 1f / Mathf.Max(0.01f, _transitionDuration);
 
-            float scaleTarget = _isCrouching.Value ? _crouchScaleY : 1f;
+            float scaleTarget = crouched ? _crouchScaleY : 1f;
             _currentScaleY = Mathf.MoveTowards(_currentScaleY, scaleTarget, rate * Time.deltaTime);
             if (!_ascensionOverrideActive)
                 ApplyScale();
@@ -150,12 +139,13 @@ namespace OffAngle.Networking
             // forever - see the CHARACTERCONTROLLER GHOST-HITBOX PROBLEM note.
             if (!base.IsOwner)
             {
-                float heightTarget = _isCrouching.Value ? _crouchControllerHeight : _standingControllerHeight;
+                float heightTarget = crouched ? _crouchControllerHeight : _standingControllerHeight;
                 _currentControllerHeight = Mathf.MoveTowards(_currentControllerHeight, heightTarget, rate * Time.deltaTime);
                 ApplyControllerHeight();
             }
         }
 
+        // temporary method to apply the scale to the third person body
         private void ApplyScale()
         {
             if (_thirdPersonBody == null) return;
@@ -176,16 +166,6 @@ namespace OffAngle.Networking
             if (_characterController == null) return;
             _characterController.height = _currentControllerHeight;
             _characterController.center = new Vector3(0f, _currentControllerHeight * 0.5f, 0f);
-        }
-
-        // ------------------------------------------------------------------
-        // Owner → everyone
-        // ------------------------------------------------------------------
-
-        [ServerRpc(RunLocally = true)]
-        private void SetCrouching(bool value)
-        {
-            _isCrouching.Value = value;
         }
     }
 }

@@ -143,34 +143,20 @@ namespace OffAngle.Player
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible   = false;
 
-            // Seed angles from current transforms to avoid a snap on enable
+            // Yaw follows the player root (spawn rotation after a respawn
+            // teleport). Pitch/roll/FOV are owned by this component; reading
+            // them from the live transform would restore whatever was frozen
+            // when this GameObject was disabled (death), because Update()
+            // stops applying them while disabled.
             _yaw   = _playerRoot.eulerAngles.y;
-            _pitch = NormalizeAngle(_pitchTarget.localEulerAngles.x);
-
-            // Unlike pitch/yaw, roll has no legitimate external driver - it's
-            // wall-run dutch tilt, entirely owned by this component via
-            // SetRollTarget (see class header). Reading the live value back
-            // here would reinstate whatever tilt was frozen in place when this
-            // GameObject got disabled mid wall-run (e.g. on death), leaving it
-            // stuck post-respawn since Update() stops applying MoveTowards
-            // while disabled - same failure mode as the FOV reset below.
+            _pitch = 0f;
             _roll = _defaultRoll;
             _rollTarget = _defaultRoll;
-
-            // Unlike pitch/yaw, FOV has no legitimate external driver - this
-            // component is the sole owner of Camera.fieldOfView (see class
-            // header). Reading the live value back here would just reinstate
-            // whatever ability/ADS FOV was frozen in place when this GameObject
-            // got disabled (e.g. on death), leaving it stuck post-respawn since
-            // Update() stops applying MoveTowards while disabled.
             _fov = _defaultFov;
             _fovTarget = _defaultFov;
             if (_camera != null)
                 _camera.fieldOfView = _fov;
 
-            // Apply the reset pitch/roll immediately so the first rendered
-            // frame doesn't show one frame of the stale pre-disable rotation
-            // before Update() ticks.
             ApplyPitchRollRotation();
 
             _inputReader.LookEvent += OnLook;

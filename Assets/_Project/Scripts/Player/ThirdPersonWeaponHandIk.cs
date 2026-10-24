@@ -32,8 +32,8 @@ namespace OffAngle.Player
         [Tooltip("WeaponSocket (third-person weapon holder). Active children are scanned for LeftHandAttach.")]
         [SerializeField] private Transform _thirdPersonWeaponHolder;
 
-        [Tooltip("Animator layer that has IK Pass enabled (Upper Body Aim is layer 1).")]
-        [SerializeField] private int _ikLayerIndex = 1;
+        [Tooltip("Name of the Animator layer that has IK Pass enabled. Resolved to an index at runtime.")]
+        [SerializeField] private string _ikLayerName = "Upper Body Aim";
 
         [Header("Target")]
         [Tooltip("Child name to find under the active third-person weapon.")]
@@ -42,17 +42,55 @@ namespace OffAngle.Player
         [Header("Weights")]
         [SerializeField, Range(0f, 1f)] private float _positionWeight = 1f;
         [SerializeField, Range(0f, 1f)] private float _rotationWeight = 1f;
+        [Tooltip("Master multiplier on position and rotation weights. 1 = current behavior. Fade to 0 later for reloads/actions.")]
+        [SerializeField, Range(0f, 1f)] private float _ikWeight = 1f;
 
         [Header("Calibration")]
         [Tooltip("Euler offset applied to LeftHandAttach.rotation for Mixamo wrist alignment.")]
         [SerializeField] private Vector3 _rotationOffsetEuler = Vector3.zero;
+
+        private int _ikLayerIndex = -1;
+        private bool _ikLayerLookupFailed;
+        private bool _bonesCached;
+        private Transform _leftUpperArm;
+        private Transform _leftLowerArm;
+        private Transform _leftHand;
+        private Transform _cachedAttach;
+        private Transform _cachedWeaponRoot;
 
         private void Awake()
         {
             if (_animator == null)
                 _animator = GetComponentInChildren<Animator>(true);
 
+            if (_animator != null)
+                _ikLayerIndex = _animator.GetLayerIndex(_ikLayerName);
+
             EnsureIkRelay();
+        }
+
+        /// <summary>
+        /// Master IK weight in 0–1. Multiplies the existing position and rotation weights.
+        /// Default 1 leaves the current look unchanged.
+        /// </summary>
+        public void SetIkWeight(float weight)
+        {
+            _ikWeight = Mathf.Clamp01(weight);
+        }
+
+        // Retried on the first IK callback because the Animator may not be
+        // initialized yet in Awake. Warns once, then the IK-weight clear is skipped.
+        private void EnsureIkLayer()
+        {
+            if (_ikLayerLookupFailed || _animator == null || !_animator.isInitialized)
+                return;
+
+            _ikLayerIndex = _animator.GetLayerIndex(_ikLayerName);
+            if (_ikLayerIndex < 0)
+            {
+                _ikLayerLookupFailed = true;
+                Debug.LogWarning($"[{nameof(ThirdPersonWeaponHandIk)}] Animator layer '{_ikLayerName}' not found.", this);
+            }
         }
 
         private void OnAnimatorIK(int layerIndex)
@@ -62,6 +100,9 @@ namespace OffAngle.Player
 
         internal void ProcessAnimatorIK(int layerIndex)
         {
+            if (_ikLayerIndex < 0)
+                EnsureIkLayer();
+
             if (layerIndex != _ikLayerIndex)
                 return;
             if (_animator == null || !_animator.enabled || !_animator.isInitialized)
@@ -78,26 +119,27 @@ namespace OffAngle.Player
                 return;
             if (!_animator.isHuman)
                 return;
-            if (_positionWeight <= 0f && _rotationWeight <= 0f)
+
+            float posWeight = _positionWeight * _ikWeight;
+            float rotWeight = _rotationWeight * _ikWeight;
+            if (posWeight <= 0f && rotWeight <= 0f)
                 return;
 
-            Transform attach = ResolveActiveLeftHandAttach();
+            EnsureArmBones();
+            if (_leftUpperArm == null || _leftLowerArm == null || _leftHand == null)
+                return;
+
+            Transform attach = GetOrRefreshLeftHandAttach();
             if (attach == null)
                 return;
 
-            Transform upper = _animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
-            Transform lower = _animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
-            Transform hand = _animator.GetBoneTransform(HumanBodyBones.LeftHand);
-            if (upper == null || lower == null || hand == null)
-                return;
+            if (posWeight > 0f)
+                SolveTwoBone(_leftUpperArm, _leftLowerArm, _leftHand, attach.position, posWeight);
 
-            if (_positionWeight > 0f)
-                SolveTwoBone(upper, lower, hand, attach.position, _positionWeight);
-
-            if (_rotationWeight > 0f)
+            if (rotWeight > 0f)
             {
                 Quaternion desired = attach.rotation * Quaternion.Euler(_rotationOffsetEuler);
-                hand.rotation = Quaternion.Slerp(hand.rotation, desired, _rotationWeight);
+                _leftHand.rotation = Quaternion.Slerp(_leftHand.rotation, desired, rotWeight);
             }
         }
 
@@ -148,20 +190,51 @@ namespace OffAngle.Player
             joint.rotation = Quaternion.FromToRotation(from, to) * joint.rotation;
         }
 
-        private Transform ResolveActiveLeftHandAttach()
+        private void EnsureArmBones()
         {
-            if (_thirdPersonWeaponHolder == null || string.IsNullOrEmpty(_leftHandAttachName))
+            if (_bonesCached)
+                return;
+            if (_animator == null || !_animator.isInitialized || !_animator.isHuman)
+                return;
+
+            _leftUpperArm = _animator.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            _leftLowerArm = _animator.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+            _leftHand = _animator.GetBoneTransform(HumanBodyBones.LeftHand);
+            _bonesCached = true;
+        }
+
+        private Transform GetOrRefreshLeftHandAttach()
+        {
+            Transform activeRoot = FindActiveHolderChild();
+            if (activeRoot == null)
+            {
+                _cachedAttach = null;
+                _cachedWeaponRoot = null;
+                return null;
+            }
+
+            if (_cachedAttach != null
+                && _cachedWeaponRoot == activeRoot
+                && _cachedWeaponRoot.gameObject.activeInHierarchy)
+                return _cachedAttach;
+
+            _cachedWeaponRoot = activeRoot;
+            _cachedAttach = string.IsNullOrEmpty(_leftHandAttachName)
+                ? null
+                : FindChildByName(activeRoot, _leftHandAttachName);
+            return _cachedAttach;
+        }
+
+        private Transform FindActiveHolderChild()
+        {
+            if (_thirdPersonWeaponHolder == null)
                 return null;
 
             for (int i = 0; i < _thirdPersonWeaponHolder.childCount; i++)
             {
                 Transform weapon = _thirdPersonWeaponHolder.GetChild(i);
-                if (weapon == null || !weapon.gameObject.activeInHierarchy)
-                    continue;
-
-                Transform attach = FindChildByName(weapon, _leftHandAttachName);
-                if (attach != null)
-                    return attach;
+                if (weapon != null && weapon.gameObject.activeInHierarchy)
+                    return weapon;
             }
 
             return null;
