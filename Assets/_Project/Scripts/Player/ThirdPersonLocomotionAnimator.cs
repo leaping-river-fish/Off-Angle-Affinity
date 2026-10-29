@@ -71,10 +71,16 @@ namespace OffAngle.Player {
         private static readonly int MoveXHash = Animator.StringToHash("MoveX");
         private static readonly int MoveYHash = Animator.StringToHash("MoveY");
         private static readonly int LocomotionSpeedHash = Animator.StringToHash("LocomotionSpeed");
+        private static readonly int IsGroundedHash = Animator.StringToHash("IsGrounded");
+        private static readonly int IsCrouchingHash = Animator.StringToHash("IsCrouching");
+        private static readonly int VerticalSpeedHash = Animator.StringToHash("VerticalSpeed");
 
         private Vector3 _lastPosition;
         private bool _hasLastPosition;
         private bool _hasLocomotionSpeedParam;
+        private bool _hasIsGroundedParam;
+        private bool _hasIsCrouchingParam;
+        private bool _hasVerticalSpeedParam;
         private IPlayerAnimStateSource _flagSource;
 
         private WeaponAdsController _adsController;
@@ -218,6 +224,20 @@ namespace OffAngle.Player {
 
             if (_hasLocomotionSpeedParam)
                 _animator.SetFloat(LocomotionSpeedHash, _snapshot.LocomotionSpeed, _dampTime, Time.deltaTime);
+
+            // Presentation-only: wall-run and ability movement stay in grounded
+            // locomotion until those clips exist. Does not change gameplay state.
+            bool playAirborneAnims = _snapshot.IsAirborne
+                && !_snapshot.IsWallRunning;
+
+            if (_hasIsGroundedParam)
+                _animator.SetBool(IsGroundedHash, !playAirborneAnims);
+
+            if (_hasIsCrouchingParam)
+                _animator.SetBool(IsCrouchingHash, _snapshot.IsCrouching);
+
+            if (_hasVerticalSpeedParam)
+                _animator.SetFloat(VerticalSpeedHash, _snapshot.VerticalSpeed);
         }
 
         private void TryApplyInitialFocus()
@@ -367,13 +387,25 @@ namespace OffAngle.Player {
         private void CacheAnimatorParameters()
         {
             _hasLocomotionSpeedParam = false;
+            _hasIsGroundedParam = false;
+            _hasIsCrouchingParam = false;
+            _hasVerticalSpeedParam = false;
             if (_animator == null) return;
 
             AnimatorControllerParameter[] parameters = _animator.parameters;
             for (int i = 0; i < parameters.Length; i++)
             {
-                if (parameters[i].nameHash == LocomotionSpeedHash && parameters[i].type == AnimatorControllerParameterType.Float)
+                int hash = parameters[i].nameHash;
+                AnimatorControllerParameterType type = parameters[i].type;
+
+                if (hash == LocomotionSpeedHash && type == AnimatorControllerParameterType.Float)
                     _hasLocomotionSpeedParam = true;
+                else if (hash == IsGroundedHash && type == AnimatorControllerParameterType.Bool)
+                    _hasIsGroundedParam = true;
+                else if (hash == IsCrouchingHash && type == AnimatorControllerParameterType.Bool)
+                    _hasIsCrouchingParam = true;
+                else if (hash == VerticalSpeedHash && type == AnimatorControllerParameterType.Float)
+                    _hasVerticalSpeedParam = true;
             }
         }
     }
