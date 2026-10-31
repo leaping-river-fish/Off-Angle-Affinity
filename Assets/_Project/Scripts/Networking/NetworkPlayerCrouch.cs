@@ -1,28 +1,30 @@
 // =============================================================================
-// NetworkPlayerCrouch — drives the third-person crouch visual and the
-// non-owner capsule so every peer sees the same crouching player consistently.
+// NetworkPlayerCrouch — drives non-owner CharacterController crouch height
+// so every peer sees the same crouched capsule for hit detection.
+// Crouch posture is the Animator (CrouchLocomotion); this component does not
+// squash Third Person Body Y as a crouch visual.
 //
 // NO NETWORKING OF ITS OWN:
 //   Crouch state is the Crouched bit of PlayerAnimFlags, carried by
 //   NetworkPlayerLocomotionSync (owner composes it from
 //   MovementStateMachine.CrouchAmount >= 0.5, remotes receive it). This
 //   component only reads that flag, so owner and remotes agree on crouch-jump
-//   and stand-up. It owns visuals only: Third Person Body scale and the
-//   non-owner CharacterController height.
+//   and stand-up. It owns the non-owner CharacterController height, and
+//   restores Third Person Body to standing scale when Solar Ascension is
+//   not overriding that transform.
 //
 // VISUAL / HITBOX:
 //   "Third Person Body" (parent of the visual Capsule mesh+collider and the
 //   Head hitbox SphereCollider) is hidden from the owner's own camera by
 //   PlayerVisibility, but its colliders are always live for hit detection on
-//   every peer. Scaling ONLY that parent transform's Y shrinks the capsule
-//   collider height AND moves the head hitbox down proportionally with zero
-//   per-child math - "the capsule just goes down," no animation required.
-//   (SphereCollider radius is driven by the MAX absolute scale axis, so the
-//   Head hitbox's radius is unaffected by a Y-only scale.)
+//   every peer. Crouch no longer scales that parent. SolarAscensionEffect
+//   still claims exclusive scale control via SetScaleOverrideActive.
 //
 // ONE CODE PATH FOR ALL PEERS:
-//   Owner, remotes, and the server all run the same Update() loop that lerps
-//   toward the Crouched flag's target scale.
+//   Owner, remotes, and the server all run the same Update() loop. Visual
+//   scale is held at standing (1,1,1) unless the ascension override is
+//   active. Non-owner CharacterController height still lerps from the
+//   Crouched flag.
 //
 // THE CHARACTERCONTROLLER GHOST-HITBOX PROBLEM:
 //   NetworkPlayerController only enables MovementStateMachine for the owner
@@ -56,9 +58,9 @@ namespace OffAngle.Networking
         [SerializeField] private CharacterController _characterController;
 
         [Header("Tuning")]
-        [Tooltip("Seconds to fully lerp the third-person capsule scale. Keep equal to MovementSettings.CrouchTransitionDuration so the owner's local capsule and the third-person capsule move in step.")]
+        [Tooltip("Seconds to fully lerp non-owner CharacterController height. Keep equal to MovementSettings.CrouchTransitionDuration so the owner's local capsule and remotes move in step.")]
         [SerializeField] private float _transitionDuration = 0.15f;
-        [Tooltip("Y scale applied to Third Person Body while fully crouched. Should equal MovementSettings.CrouchHeight / standing CharacterController height.")]
+        [Tooltip("Unused by crouch visuals (Animator provides posture). Kept serialized so existing prefab wiring is unchanged.")]
         [SerializeField, Range(0.1f, 1f)] private float _crouchScaleY = 0.56f;
         [Tooltip("CharacterController height while fully crouched on non-owner peers. Must equal MovementSettings.CrouchHeight so the server's hitbox matches the owner's real one.")]
         [SerializeField] private float _crouchControllerHeight = 1f;
@@ -66,8 +68,8 @@ namespace OffAngle.Networking
         private float _currentScaleY = 1f;
 
         // Set by SolarAscensionEffect while its own scale-up owns this same
-        // transform. Crouch's lerp state keeps advancing underneath so scale
-        // resumes smoothly (no pop) once the override is released, but
+        // transform. Crouch's standing-scale lerp still advances underneath so
+        // ApplyScale() resumes at (1,1,1) once the override is released, but
         // ApplyScale() itself is skipped so it can't stomp the ascension
         // scale every frame - see the bug this was written to fix: ascension
         // set the scale via RPC and this component's next Update() silently
@@ -102,11 +104,8 @@ namespace OffAngle.Networking
         {
             base.OnStartClient();
 
-            // Seed the visual immediately at the current synced value so a
-            // late-joining observer does not see a standing player pop into
-            // a crouch (or vice versa) on the first frame.
             bool crouched = IsCrouched();
-            _currentScaleY = crouched ? _crouchScaleY : 1f;
+            _currentScaleY = 1f;
             ApplyScale();
 
             _currentControllerHeight = crouched ? _crouchControllerHeight : _standingControllerHeight;
@@ -125,7 +124,7 @@ namespace OffAngle.Networking
             bool crouched = IsCrouched();
             float rate = 1f / Mathf.Max(0.01f, _transitionDuration);
 
-            float scaleTarget = crouched ? _crouchScaleY : 1f;
+            const float scaleTarget = 1f;
             _currentScaleY = Mathf.MoveTowards(_currentScaleY, scaleTarget, rate * Time.deltaTime);
             if (!_ascensionOverrideActive)
                 ApplyScale();
@@ -145,7 +144,6 @@ namespace OffAngle.Networking
             }
         }
 
-        // temporary method to apply the scale to the third person body
         private void ApplyScale()
         {
             if (_thirdPersonBody == null) return;
